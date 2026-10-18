@@ -43,6 +43,8 @@ const golden = JSON.parse(readFileSync(new URL('./fixtures/kokoro-inputs.json', 
 const dict = process.env.SEA_G2P_DICT;
 
 describe.skipIf(!dict)('toModelInputs against the speech worker (set SEA_G2P_DICT to sea_g2p.bin)', async () => {
+  // skipIf still runs this body, so it stops here without the dictionary.
+  if (!dict) return;
   const { initSync, SeaG2p } = await import('../vendor/sea-g2p/sea_g2p_rs.js');
   initSync({ module: readFileSync(new URL('../vendor/sea-g2p/sea_g2p_rs_bg.wasm', import.meta.url)) });
   const g2p = new SeaG2p(readFileSync(dict!));
