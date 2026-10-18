@@ -1,0 +1,5 @@
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+kokoro-vietnamese[onnx] @ git+https://github.com/iamdinhthuan/Kokoro-Vietnamese.git@a249afe5555aec6c435165c2f61ec0f71284812f
+onnxruntime==1.20.1
+soundfile==0.13.1

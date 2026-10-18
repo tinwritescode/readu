@@ -1,0 +1,5 @@
+{
+  "$schema": "https://railway.com/railway.schema.json",
+  "build": { "builder": "DOCKERFILE", "dockerfilePath": "Dockerfile", "watchPatterns": ["*.go", "go.mod", "openapi.json", "Dockerfile"] },
+  "deploy": { "healthcheckPath": "/healthz", "restartPolicyType": "ON_FAILURE", "numReplicas": 1 }
+}

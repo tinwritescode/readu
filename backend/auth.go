@@ -16,8 +16,10 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
-	"sync"
 	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 const (
@@ -39,35 +41,19 @@ type codeSender interface {
 	sendCode(ctx context.Context, to, code string) error
 }
 
-type pendingCode struct {
-	hash     [32]byte
-	expires  time.Time
-	attempts int
-	sentAt   time.Time
-}
+// sessionRenewWindow: a session with less than this left is extended to a full term when used.
+const sessionRenewWindow = 7 * 24 * time.Hour
 
-type session struct {
-	email   string
-	expires time.Time
-}
-
-// authService keeps login codes and sessions in memory. A restart signs
-// everyone out, which is acceptable for a single-user backend.
+// authService runs the email-code login. Codes, users, sessions and plans live in Postgres.
+// Every query takes the time from now, so tests can move the clock.
 type authService struct {
-	mu       sync.Mutex
-	sender   codeSender
-	codes    map[string]*pendingCode
-	sessions map[[32]byte]session
-	now      func() time.Time
+	db     *pgxpool.Pool
+	sender codeSender
+	now    func() time.Time
 }
 
-func newAuthService(sender codeSender) *authService {
-	return &authService{
-		sender:   sender,
-		codes:    map[string]*pendingCode{},
-		sessions: map[[32]byte]session{},
-		now:      time.Now,
-	}
+func newAuthService(sender codeSender, db *pgxpool.Pool) *authService {
+	return &authService{db: db, sender: sender, now: time.Now}
 }
 
 func normalizeEmail(raw string) (string, error) {
@@ -78,8 +64,14 @@ func normalizeEmail(raw string) (string, error) {
 	return email, nil
 }
 
-func codeHash(email, code string) [32]byte {
-	return sha256.Sum256([]byte(email + ":" + code))
+func codeHash(email, code string) []byte {
+	sum := sha256.Sum256([]byte(email + ":" + code))
+	return sum[:]
+}
+
+func tokenHash(token string) []byte {
+	sum := sha256.Sum256([]byte(token))
+	return sum[:]
 }
 
 func randomCode() (string, error) {
@@ -108,54 +100,108 @@ func (a *authService) requestCode(ctx context.Context, raw string) error {
 	if err != nil {
 		return err
 	}
-
-	a.mu.Lock()
 	now := a.now()
-	if p, ok := a.codes[email]; ok && now.Sub(p.sentAt) < codeCooldown {
-		a.mu.Unlock()
+	// The upsert only replaces a code older than the cooldown, so no row back means wait.
+	tag, err := a.db.Exec(ctx, `
+		INSERT INTO login_codes (email, code_hash, sent_at, expires_at, attempts)
+		VALUES ($1, $2, $3, $4, 0)
+		ON CONFLICT (email) DO UPDATE
+		SET code_hash = EXCLUDED.code_hash, sent_at = EXCLUDED.sent_at, expires_at = EXCLUDED.expires_at, attempts = 0
+		WHERE login_codes.sent_at <= $5`,
+		email, codeHash(email, code), now, now.Add(codeTTL), now.Add(-codeCooldown))
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
 		return errCooldown
 	}
-	a.codes[email] = &pendingCode{hash: codeHash(email, code), expires: now.Add(codeTTL), sentAt: now}
-	a.mu.Unlock()
-
 	if err := a.sender.sendCode(ctx, email, code); err != nil {
-		a.mu.Lock()
-		delete(a.codes, email)
-		a.mu.Unlock()
+		if _, delErr := a.db.Exec(ctx, `DELETE FROM login_codes WHERE email = $1`, email); delErr != nil {
+			log.Printf("drop unsent code: %v", delErr)
+		}
 		return err
 	}
 	return nil
 }
 
-// verify exchanges a correct code for a session token. Each code allows
-// maxAttempts guesses before it is dead.
-func (a *authService) verify(raw, code string) (string, error) {
+// verify exchanges a correct code for a session token, creating the user on first login.
+// Each code allows maxAttempts guesses before it is dead.
+func (a *authService) verify(ctx context.Context, raw, code string) (string, error) {
 	email, err := normalizeEmail(raw)
 	if err != nil {
 		return "", errBadCode
 	}
-
-	a.mu.Lock()
-	defer a.mu.Unlock()
 	now := a.now()
-	p, ok := a.codes[email]
-	if !ok || now.After(p.expires) || p.attempts >= maxAttempts {
-		delete(a.codes, email)
-		return "", errBadCode
+	tx, err := a.db.Begin(ctx)
+	if err != nil {
+		return "", err
 	}
-	p.attempts++
-	want := codeHash(email, code)
-	if subtle.ConstantTimeCompare(p.hash[:], want[:]) != 1 {
-		return "", errBadCode
-	}
-	delete(a.codes, email)
+	defer tx.Rollback(ctx)
 
+	var hash []byte
+	var expires time.Time
+	var attempts int
+	err = tx.QueryRow(ctx, `SELECT code_hash, expires_at, attempts FROM login_codes WHERE email = $1 FOR UPDATE`, email).
+		Scan(&hash, &expires, &attempts)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", errBadCode
+	}
+	if err != nil {
+		return "", err
+	}
+	if now.After(expires) || attempts >= maxAttempts {
+		if _, err := tx.Exec(ctx, `DELETE FROM login_codes WHERE email = $1`, email); err != nil {
+			return "", err
+		}
+		return "", errors.Join(errBadCode, tx.Commit(ctx))
+	}
+	if subtle.ConstantTimeCompare(hash, codeHash(email, code)) != 1 {
+		if _, err := tx.Exec(ctx, `UPDATE login_codes SET attempts = attempts + 1 WHERE email = $1`, email); err != nil {
+			return "", err
+		}
+		return "", errors.Join(errBadCode, tx.Commit(ctx))
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM login_codes WHERE email = $1`, email); err != nil {
+		return "", err
+	}
+	userID, err := findOrCreateEmailUser(ctx, tx, email, now)
+	if err != nil {
+		return "", err
+	}
 	token, err := randomToken()
 	if err != nil {
 		return "", err
 	}
-	a.sessions[sha256.Sum256([]byte(token))] = session{email: email, expires: now.Add(sessionTTL)}
-	return token, nil
+	if _, err := tx.Exec(ctx, `DELETE FROM sessions WHERE expires_at <= $1`, now); err != nil {
+		return "", err
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO sessions (token_hash, user_id, created_at, expires_at) VALUES ($1, $2, $3, $4)`,
+		tokenHash(token), userID, now, now.Add(sessionTTL)); err != nil {
+		return "", err
+	}
+	return token, tx.Commit(ctx)
+}
+
+// findOrCreateEmailUser returns the user behind an email identity. A new user starts on the free plan.
+func findOrCreateEmailUser(ctx context.Context, tx pgx.Tx, email string, now time.Time) (int64, error) {
+	var id int64
+	err := tx.QueryRow(ctx, `SELECT user_id FROM user_identities WHERE provider = 'email' AND subject = $1`, email).Scan(&id)
+	if err == nil {
+		return id, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return 0, err
+	}
+	if err := tx.QueryRow(ctx, `INSERT INTO users (email, created_at) VALUES ($1, $2) RETURNING id`, email, now).Scan(&id); err != nil {
+		return 0, err
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO user_identities (user_id, provider, subject, created_at) VALUES ($1, 'email', $2, $3)`, id, email, now); err != nil {
+		return 0, err
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO subscriptions (user_id, plan_id, status, started_at) VALUES ($1, 'free', 'active', $2)`, id, now); err != nil {
+		return 0, err
+	}
+	return id, nil
 }
 
 func bearerToken(r *http.Request) (string, bool) {
@@ -163,15 +209,46 @@ func bearerToken(r *http.Request) (string, bool) {
 	return token, ok && token != ""
 }
 
-func (a *authService) authorized(r *http.Request) bool {
+// account is who a live session belongs to.
+type account struct {
+	UserID int64  `json:"-"`
+	Email  string `json:"email"`
+	Plan   string `json:"plan"`
+}
+
+// sessionAccount returns the account behind the request's token. A session close to expiry gets a full term again.
+func (a *authService) sessionAccount(r *http.Request) (account, bool) {
 	token, ok := bearerToken(r)
 	if !ok {
-		return false
+		return account{}, false
 	}
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	s, ok := a.sessions[sha256.Sum256([]byte(token))]
-	return ok && a.now().Before(s.expires)
+	ctx, now := r.Context(), a.now()
+	var acc account
+	var expires time.Time
+	err := a.db.QueryRow(ctx, `
+		SELECT u.id, u.email, coalesce(sub.plan_id, 'free'), s.expires_at
+		FROM sessions s
+		JOIN users u ON u.id = s.user_id
+		LEFT JOIN subscriptions sub ON sub.user_id = u.id AND sub.status = 'active'
+		WHERE s.token_hash = $1 AND s.expires_at > $2`, tokenHash(token), now).
+		Scan(&acc.UserID, &acc.Email, &acc.Plan, &expires)
+	if err != nil {
+		if !errors.Is(err, pgx.ErrNoRows) {
+			log.Printf("check session: %v", err)
+		}
+		return account{}, false
+	}
+	if expires.Sub(now) < sessionRenewWindow {
+		if _, err := a.db.Exec(ctx, `UPDATE sessions SET expires_at = $2 WHERE token_hash = $1`, tokenHash(token), now.Add(sessionTTL)); err != nil {
+			log.Printf("renew session: %v", err)
+		}
+	}
+	return acc, true
+}
+
+func (a *authService) authorized(r *http.Request) bool {
+	_, ok := a.sessionAccount(r)
+	return ok
 }
 
 func (a *authService) logout(r *http.Request) {
@@ -179,9 +256,9 @@ func (a *authService) logout(r *http.Request) {
 	if !ok {
 		return
 	}
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	delete(a.sessions, sha256.Sum256([]byte(token)))
+	if _, err := a.db.Exec(r.Context(), `DELETE FROM sessions WHERE token_hash = $1`, tokenHash(token)); err != nil {
+		log.Printf("logout: %v", err)
+	}
 }
 
 const resendURL = "https://api.resend.com/emails"
@@ -197,7 +274,7 @@ func (r *resendSender) sendCode(ctx context.Context, to, code string) error {
 	body, err := json.Marshal(map[string]any{
 		"from":    r.from,
 		"to":      []string{to},
-		"subject": "Mã đăng nhập vTTS Reader",
+		"subject": "Mã đăng nhập Readu",
 		"text":    fmt.Sprintf("Mã đăng nhập của bạn: %s\n\nMã hết hạn sau 10 phút. Nếu bạn không yêu cầu, hãy bỏ qua email này.", code),
 	})
 	if err != nil {
@@ -254,7 +331,7 @@ func (s *server) handleVerify(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
-	token, err := s.auth.verify(body.Email, body.Code)
+	token, err := s.auth.verify(r.Context(), body.Email, body.Code)
 	if err != nil {
 		writeError(w, http.StatusUnauthorized, err.Error())
 		return
@@ -266,4 +343,14 @@ func (s *server) handleVerify(w http.ResponseWriter, r *http.Request) {
 func (s *server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	s.auth.logout(r)
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *server) handleMe(w http.ResponseWriter, r *http.Request) {
+	acc, ok := s.auth.sessionAccount(r)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(acc)
 }

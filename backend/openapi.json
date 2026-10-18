@@ -3,7 +3,7 @@
   "info": {
     "title": "vtts-backend",
     "version": "1.0.0",
-    "description": "Turns Vietnamese text into MP3 with Vbee. POST /v1/speech needs a Bearer token when API_TOKEN is set on the server."
+    "description": "Turns Vietnamese text into MP3 with Kokoro Vietnamese. POST /v1/speech needs a Bearer session token."
   },
   "paths": {
     "/": {
@@ -89,7 +89,7 @@
     "/v1/voices": {
       "get": {
         "summary": "List Vietnamese voices",
-        "description": "Voices from Vbee for vi-VN. Cached on the server for an hour.",
+        "description": "Kokoro Vietnamese voices.",
         "security": [{ "bearerAuth": [] }, {}],
         "responses": {
           "200": {
@@ -97,14 +97,14 @@
             "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Voices" } } }
           },
           "401": { "description": "Missing or wrong Bearer token", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
-          "502": { "description": "Vbee failed", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+          "502": { "description": "Kokoro worker failed", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
         }
       }
     },
     "/v1/speech": {
       "post": {
         "summary": "Synthesize speech",
-        "description": "Splits text into chunks, synthesizes each with Vbee, caches chunks on disk, and returns one MP3.",
+        "description": "Splits text into chunks, synthesizes each with Kokoro, caches chunks on disk, and returns one MP3.",
         "security": [{ "bearerAuth": [] }, {}],
         "requestBody": {
           "required": true,
@@ -119,7 +119,7 @@
           },
           "400": { "description": "Bad request", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
           "401": { "description": "Missing or wrong Bearer token", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
-          "502": { "description": "Vbee failed", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+          "502": { "description": "Kokoro worker failed", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
         }
       }
     }
@@ -134,7 +134,7 @@
         "required": ["text", "voice", "speed"],
         "properties": {
           "text": { "type": "string", "maxLength": 20000, "description": "Vietnamese text", "example": "Xin chào các bạn." },
-          "voice": { "type": "string", "pattern": "^[a-z0-9_-]{1,80}$", "description": "Vbee voice code", "example": "s_hochiminh_female_hanhanvani_children_vc" },
+          "voice": { "type": "string", "pattern": "^[a-z0-9_-]{1,80}$", "description": "Kokoro voice code; unknown codes use mai_loan", "example": "mai_loan" },
           "speed": { "type": "number", "minimum": 0.1, "maximum": 1.9, "example": 1 }
         }
       },

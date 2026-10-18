@@ -62,20 +62,21 @@ backend/                       Go service (see below)
 
 ### Backend (`backend/`)
 
-Go 1.26, standard library only, deployed on Fly.io as `vtts-backend` (region `sin`).
+Go 1.26 with `pgx` and `goose`, deployed on Railway (project `readu`, region southeast-asia, service `backend`) at `https://api.readu.tyvn.online` (Cloudflare CNAME, DNS only; also `https://backend-production-ac6e.up.railway.app`). Speech comes from the `kokoro-worker` service (`backend/kokoro-worker/`, Python, Kokoro-Vietnamese ONNX on CPU), reachable only on Railway's private network at `kokoro-worker.railway.internal:8080`.
 
 | Endpoint | Purpose |
 | --- | --- |
 | `POST /v1/auth/code` | Emails a 6-digit code (Resend). One code per email per minute, valid 10 minutes, five wrong tries |
-| `POST /v1/auth/session` | Exchanges the code for a session token (30 days) |
+| `POST /v1/auth/session` | Exchanges the code for a session token. It lasts 30 days from the last use, and is renewed when less than 7 days remain |
 | `DELETE /v1/auth/session` | Ends the session |
-| `GET /v1/voices` | Vbee vi-VN voices, cached for an hour |
-| `POST /v1/speech` | Text, voice and speed to MP3. Chunks are cached on the server |
+| `GET /v1/me` | Email and plan of the signed-in user |
+| `GET /v1/voices` | The 13 Kokoro voices |
+| `POST /v1/speech` | Text, voice and speed to MP3 through the Kokoro worker. Unknown voice codes use `mai_loan`. Chunks are cached on the server |
 | `GET /docs`, `GET /openapi.json`, `GET /healthz`, `GET /` | Swagger UI, the spec, health, and an index |
 
-Secrets are Fly secrets: `VBEE_APP_ID`, `VBEE_ACCESS_TOKEN`, `RESEND_API_KEY`. Login codes are sent from `vTTS Reader <login@thecoupleapp.xyz>` (Fly secret `MAIL_FROM`). The domain is verified in Resend, so any address can receive a code. The default `onboarding@resend.dev` only reaches the account owner.
+Railway variables on `backend`: `DATABASE_URL` (reference to the Railway `Postgres` service), `KOKORO_WORKER_URL`, `KOKORO_WORKER_TOKEN` (same value as `WORKER_TOKEN` on `kokoro-worker`), `RESEND_API_KEY`, `MAIL_FROM`, `DEBUG_TOKEN`. Users, sign-in identities, login codes, sessions (hashed tokens), plans and subscriptions live in Postgres; `backend/migrations/` runs on startup. Every new user gets an active `free` subscription. The `/data` volume only holds the audio cache. Login codes are sent from `Readu <login@thecoupleapp.xyz>`. Deploy with `railway up . --path-as-root -s backend` from `backend/`, and `railway up kokoro-worker --path-as-root -s kokoro-worker`. The domain is verified in Resend, so any address can receive a code. The default `onboarding@resend.dev` only reaches the account owner.
 
-Checks: `cd backend && gofmt -l . && go vet ./... && go test ./...`.
+Checks: `cd backend && gofmt -l . && go vet ./... && go test ./...`. Auth tests need `TEST_DATABASE_URL` (e.g. `docker run -d -e POSTGRES_PASSWORD=pg -p 55432:5432 postgres:17-alpine`, then `TEST_DATABASE_URL=postgres://postgres:pg@localhost:55432/postgres?sslmode=disable`); without it they are skipped.
 
 ## Run
 

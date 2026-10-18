@@ -1,13 +1,15 @@
-// Command vtts-backend turns text into MP3 with Vbee, keeping the Vbee keys
-// on the server. The app posts text and gets audio back.
+// Command vtts-backend turns text into MP3 with the Kokoro Vietnamese worker.
+// The app posts text and gets audio back.
 //
 // Environment:
 //
-//	VBEE_APP_ID        App ID from the Vbee console (required)
-//	VBEE_ACCESS_TOKEN  Access token for the app (required)
+//	KOKORO_WORKER_URL  internal URL of the Kokoro worker (required)
+//	KOKORO_WORKER_TOKEN shared secret for the Kokoro worker
+//	DATABASE_URL       Postgres connection string (required)
 //	RESEND_API_KEY     Resend key used to email login codes (required)
-//	MAIL_FROM          sender of login emails (default "vTTS Reader <onboarding@resend.dev>")
+//	MAIL_FROM          sender of login emails (default "Readu <onboarding@resend.dev>")
 //	CACHE_DIR          where synthesized chunks are kept (default ./cache)
+//	DEBUG_TOKEN        enables /v1/debug/cache when set; requests need it as a bearer token
 //	PORT               listen port (default 8080)
 package main
 
@@ -31,10 +33,10 @@ import (
 
 const (
 	maxRequestChars = 20000
-	// vbeeMaxChars keeps each job short enough to poll quickly and to retry alone.
-	vbeeMaxChars = 300
-	minSpeed     = 0.1
-	maxSpeed     = 1.9
+	// chunkMaxChars matches the worker's text limit and lets each chunk be cached and retried alone.
+	chunkMaxChars = 300
+	minSpeed      = 0.1
+	maxSpeed      = 1.9
 )
 
 var voicePattern = regexp.MustCompile(`^[a-z0-9_-]{1,80}$`)
@@ -46,17 +48,16 @@ type speechRequest struct {
 }
 
 type server struct {
-	vbee     *vbeeClient
-	voices   *voiceCatalog
-	cacheDir string
-	auth     *authService
+	kokoro     *kokoroClient
+	cacheDir   string
+	debugToken string
+	auth       *authService
 }
 
 func main() {
-	appID := os.Getenv("VBEE_APP_ID")
-	token := os.Getenv("VBEE_ACCESS_TOKEN")
-	if appID == "" || token == "" {
-		log.Fatal("set VBEE_APP_ID and VBEE_ACCESS_TOKEN")
+	kokoro := newKokoroClient()
+	if kokoro.url == "" {
+		log.Fatal("set KOKORO_WORKER_URL")
 	}
 	resendKey := os.Getenv("RESEND_API_KEY")
 	if resendKey == "" {
@@ -67,21 +68,25 @@ func main() {
 		log.Fatal(err)
 	}
 
-	vbee := &vbeeClient{
-		appID:       appID,
-		token:       token,
-		callbackURL: envOr("CALLBACK_URL", "https://example.com/callback"),
-		client:      &http.Client{Timeout: 60 * time.Second},
+	dbURL := os.Getenv("DATABASE_URL")
+	if dbURL == "" {
+		log.Fatal("set DATABASE_URL")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	db, err := openDB(ctx, dbURL)
+	cancel()
+	if err != nil {
+		log.Fatal(err)
 	}
 	s := &server{
-		vbee:     vbee,
-		voices:   &voiceCatalog{vbee: vbee},
-		cacheDir: cacheDir,
+		kokoro:     kokoro,
+		cacheDir:   cacheDir,
+		debugToken: os.Getenv("DEBUG_TOKEN"),
 		auth: newAuthService(&resendSender{
 			apiKey: resendKey,
-			from:   envOr("MAIL_FROM", "vTTS Reader <onboarding@resend.dev>"),
+			from:   envOr("MAIL_FROM", "Readu <onboarding@resend.dev>"),
 			client: &http.Client{Timeout: 20 * time.Second},
-		}),
+		}, db),
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", handleRoot)
@@ -92,7 +97,11 @@ func main() {
 	mux.HandleFunc("POST /v1/auth/code", s.handleRequestCode)
 	mux.HandleFunc("POST /v1/auth/session", s.handleVerify)
 	mux.HandleFunc("DELETE /v1/auth/session", s.handleLogout)
+	mux.HandleFunc("GET /v1/me", s.handleMe)
 	mux.HandleFunc("POST /v1/speech", s.handleSpeech)
+	mux.HandleFunc("GET /v1/debug/cache", s.handleDebugList)
+	mux.HandleFunc("DELETE /v1/debug/cache", s.handleDebugClear)
+	mux.HandleFunc("DELETE /v1/debug/cache/{key}", s.handleDebugDeleteOne)
 
 	addr := ":" + envOr("PORT", "8080")
 	log.Printf("listening on %s, cache %s", addr, cacheDir)
@@ -125,10 +134,11 @@ func (s *server) handleSpeech(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "speed must be between 0.1 and 1.9")
 		return
 	}
+	voice := kokoroVoiceOr(req.Voice)
 
 	var out bytes.Buffer
-	for _, chunk := range splitText(text, vbeeMaxChars) {
-		audio, err := s.chunkAudio(r.Context(), chunk, req.Voice, req.Speed)
+	for _, chunk := range splitText(text, chunkMaxChars) {
+		audio, err := s.chunkAudio(r.Context(), chunk, voice, req.Speed)
 		if err != nil {
 			log.Printf("synthesize failed: %v", err)
 			writeError(w, http.StatusBadGateway, "speech service failed")
@@ -147,20 +157,14 @@ func (s *server) handleVoices(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
-	voices, err := s.voices.get(r.Context())
-	if err != nil {
-		log.Printf("list voices failed: %v", err)
-		writeError(w, http.StatusBadGateway, "voice list unavailable")
-		return
-	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string][]voice{"voices": voices})
+	json.NewEncoder(w).Encode(map[string][]voice{"voices": kokoroVoices})
 }
 
 // chunkAudio returns cached audio for a chunk, or synthesizes and caches it.
 func (s *server) chunkAudio(ctx context.Context, chunk, voice string, speed float64) ([]byte, error) {
 	speedKey := strconv.FormatFloat(speed, 'f', 2, 64)
-	sum := sha256.Sum256([]byte(voice + "\x00" + speedKey + "\x00" + chunk))
+	sum := sha256.Sum256([]byte(kokoroModelVersion + "\x00" + voice + "\x00" + speedKey + "\x00" + chunk))
 	key := hex.EncodeToString(sum[:])
 	path := filepath.Join(s.cacheDir, key[:2], key+".mp3")
 
@@ -168,18 +172,22 @@ func (s *server) chunkAudio(ctx context.Context, chunk, voice string, speed floa
 		return data, nil
 	}
 
-	audio, err := s.vbee.synthesize(ctx, chunk, voice, speed)
+	audio, err := s.kokoro.synthesize(ctx, chunk, voice, speed)
 	if err != nil {
 		return nil, err
 	}
 	if len(audio) == 0 {
-		return nil, errors.New("empty audio from vbee")
+		return nil, errors.New("empty audio from kokoro")
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return nil, err
 	}
 	if err := os.WriteFile(path, audio, 0o644); err != nil {
 		return nil, err
+	}
+	// The sidecar lets the debug page show what each file says. A failure here only loses that label.
+	if err := writeCacheMeta(path, voice, speed, chunk); err != nil {
+		log.Printf("cache label failed: %v", err)
 	}
 	return audio, nil
 }
