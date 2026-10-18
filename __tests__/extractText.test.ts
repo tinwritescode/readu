@@ -76,6 +76,12 @@ describe('EPUB', () => {
     });
   });
 
+  it('keeps the cover Readium saved, and omits a missing one', () => {
+    const picked = { name: 'm.epub', kind: 'epub' as const, title: null, paragraphs: ['Hi'] };
+    expect(documentFromPicked({ ...picked, cover: 'A1.jpg' }).cover).toBe('A1.jpg');
+    expect(documentFromPicked({ ...picked, cover: null })).not.toHaveProperty('cover');
+  });
+
   it('falls back to the file name and rejects a book with no text', () => {
     expect(documentFromPicked({ name: 'b.epub', kind: 'epub', title: null, paragraphs: ['Hi'] }).title).toBe('b');
     expect(() => documentFromPicked({ name: 'c.epub', kind: 'epub', title: null, paragraphs: [] })).toThrow(/no text/);

@@ -1,38 +1,43 @@
+/** Paper and ink: a grey-green paper, near-black ink, moss green for actions, highlighter green for speech. */
 export const colors = {
-  background: '#FAF8F5',
-  surface: '#FFFFFF',
-  surfaceElevated: '#FFFFFF',
-  chip: '#F3EFE8',
-  chipActive: '#EBF1FD',
-  track: '#ECE7DF',
-  trackFill: '#1D4ED8',
-  text: '#191816',
-  reading: '#292723',
-  read: '#A49F96',
-  muted: '#7F796E',
-  border: '#E5DFD4',
-  borderLight: '#EFEAE1',
-  accent: '#1D4ED8',
-  accentSoft: '#EEF3FD',
-  onAccent: '#FFFFFF',
-  inverse: '#191816',
-  onInverse: '#FAF8F5',
-  onInverseMuted: '#A7A194',
-  sentenceHighlight: '#FDF3CF',
-  sentenceHighlightBorder: '#F5E29F',
-  wordHighlight: '#2563EB',
-  wordHighlightText: '#FFFFFF',
-  danger: '#DC2626',
-  success: '#16A34A',
+  background: '#F1F2EE',
+  surface: '#FBFBF8',
+  chip: '#E4E6E0',
+  track: '#E1E4DE',
+  text: '#17191A',
+  reading: '#17191A',
+  read: '#8F948D',
+  muted: '#6A6F69',
+  border: '#D3D7D0',
+  borderLight: '#E1E4DE',
+  accent: '#1E5B47',
+  accentSoft: '#DCE8D2',
+  onAccent: '#FBFBF8',
+  inverse: '#17191A',
+  onInverse: '#F1F2EE',
+  sentenceHighlight: '#DCE8D2',
+  wordHighlight: '#B9D3A6',
+  danger: '#B3261E',
 };
 
-export const readingFont = 'Georgia';
+/**
+ * Bundled in assets/fonts (SIL OFL), named by PostScript name. Literata is the reading face and
+ * document titles; Public Sans the small uppercase labels in the reader. Everything else uses SF Pro.
+ */
+export const fonts = {
+  read: 'Literata-Regular',
+  readItalic: 'Literata-Italic',
+  readMedium: 'Literata-Medium',
+  readSemiBold: 'Literata-SemiBold',
+  label: 'PublicSans-Medium',
+  labelBold: 'PublicSans-SemiBold',
+};
 
-/** Tint, ink, and format badge styling for a document's cover tile. */
-export const formatTile = {
-  paste: { tint: '#FEF3C7', ink: '#B45309', label: 'TEXT' },
-  txt: { tint: '#DCFCE7', ink: '#15803D', label: 'TXT' },
-  epub: { tint: '#DBEAFE', ink: '#1D4ED8', label: 'EPUB' },
-  pdf: { tint: '#FEE2E2', ink: '#B91C1C', label: 'PDF' },
-  docx: { tint: '#E0E7FF', ink: '#4338CA', label: 'DOCX' },
+/** Small uppercase label used in the reader's nav and dock. */
+export const labelText = {
+  fontFamily: fonts.labelBold,
+  fontSize: 11,
+  letterSpacing: 1.1,
+  textTransform: 'uppercase',
+  color: colors.muted,
 } as const;

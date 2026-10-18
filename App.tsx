@@ -3,7 +3,7 @@ import { ActivityIndicator, AppState, StatusBar, StyleSheet, View } from 'react-
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { createSystemSpeechEngine } from './src/adapters/speech/SystemSpeechEngine';
 import type { LibraryEntry, ReaderDocument } from './src/domain/types';
-import { documentFromPaste } from './src/features/import/DocumentImporter';
+import { deleteCover, documentFromPaste } from './src/features/import/DocumentImporter';
 import { libraryReducer, loadLibrary, saveLibrary, toEntry } from './src/features/library/library';
 import { usePlayer } from './src/features/reader/usePlayer';
 import { LibraryScreen } from './src/ui/LibraryScreen';
@@ -17,8 +17,8 @@ const voicesPromise = engine.listVoices();
 
 const WELCOME = documentFromPaste(
   'Welcome to vTTS Reader. This app reads your text aloud with the voices built into iOS, ' +
-    'so it works without an internet connection. The word being spoken is highlighted in blue, ' +
-    'and the whole sentence in yellow.\n\nTap any sentence to start reading from there. ' +
+    'so it works without an internet connection. The word being spoken is highlighted in dark green, ' +
+    'and the whole sentence in light green.\n\nTap any sentence to start reading from there. ' +
     'Go back to the library to add your own text: paste it, or open an EPUB, PDF, Word or text file from the Files app!',
 );
 const libraryPromise = loadLibrary({ ...WELCOME, title: 'Welcome to vTTS Reader' });
@@ -83,6 +83,7 @@ function Root() {
           onOpen={open}
           onDelete={target => {
             player.closeIfCurrent(target.id);
+            deleteCover(target);
             dispatch({ type: 'remove', id: target.id });
           }}
         />

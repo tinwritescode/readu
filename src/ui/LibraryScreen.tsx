@@ -2,9 +2,10 @@ import React, { useMemo, useState } from 'react';
 import {
   ActionSheetIOS,
   Alert,
-  FlatList,
+  Image,
   Modal,
   Pressable,
+  SectionList,
   StyleSheet,
   Text,
   TextInput,
@@ -12,20 +13,12 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { LibraryEntry, ReaderDocument } from '../domain/types';
-import { documentFromPaste, importDocument } from '../features/import/DocumentImporter';
+import { coverUri, documentFromPaste, importDocument } from '../features/import/DocumentImporter';
 import { isFinished, recentEntries } from '../features/library/library';
 import { formatMinutesLeft, minutesFor } from '../features/reader/estimate';
 import type { Player } from '../features/reader/usePlayer';
-import {
-  BookOpenIcon,
-  CheckIcon,
-  ClockIcon,
-  PauseIcon,
-  PlayIcon,
-  PlusIcon,
-  SearchIcon,
-} from './icons';
-import { colors, formatTile } from './theme';
+import { CheckIcon, PauseIcon, PlayIcon, PlusIcon, ProgressRing, SearchIcon } from './icons';
+import { colors, fonts } from './theme';
 
 interface Props {
   entries: LibraryEntry[];
@@ -36,23 +29,36 @@ interface Props {
   onDelete: (entry: LibraryEntry) => void;
 }
 
-export function LibraryScreen({
-  entries,
-  player,
-  speed,
-  onAdd,
-  onOpen,
-  onDelete,
-}: Props) {
+const FORMAT_LABEL = { paste: 'Text', txt: 'Text', epub: 'EPUB', pdf: 'PDF', docx: 'Word' } as const;
+
+interface Section {
+  key: 'continue' | 'all';
+  title: string;
+  data: LibraryEntry[];
+}
+
+const started = (e: LibraryEntry) => e.position > 0 && !isFinished(e);
+
+/** The most recently opened document, if it is part-way through, sits apart under Continue. */
+function librarySections(entries: LibraryEntry[], query: string): Section[] {
+  const q = query.trim().toLocaleLowerCase();
+  const recent = recentEntries(entries).filter(e => !q || e.title.toLocaleLowerCase().includes(q));
+  const [first, ...rest] = recent;
+  const sections: Section[] = [];
+  if (first && started(first) && !q) {
+    sections.push({ key: 'continue', title: 'Continue', data: [first] });
+    if (rest.length) sections.push({ key: 'all', title: 'All documents', data: rest });
+  } else if (recent.length) {
+    sections.push({ key: 'all', title: q ? 'Results' : 'All documents', data: recent });
+  }
+  return sections;
+}
+
+export function LibraryScreen({ entries, player, speed, onAdd, onOpen, onDelete }: Props) {
   const insets = useSafeAreaInsets();
   const [query, setQuery] = useState('');
   const [pasting, setPasting] = useState(false);
-
-  const shown = useMemo(() => {
-    const q = query.trim().toLocaleLowerCase();
-    const recent = recentEntries(entries);
-    return q ? recent.filter(e => e.title.toLocaleLowerCase().includes(q)) : recent;
-  }, [entries, query]);
+  const sections = useMemo(() => librarySections(entries, query), [entries, query]);
 
   const importFile = async () => {
     try {
@@ -78,46 +84,33 @@ export function LibraryScreen({
 
   const showEntryMenu = (entry: LibraryEntry) =>
     ActionSheetIOS.showActionSheetWithOptions(
-      {
-        title: entry.title,
-        options: ['Delete', 'Cancel'],
-        destructiveButtonIndex: 0,
-        cancelButtonIndex: 1,
-      },
+      { title: entry.title, options: ['Delete', 'Cancel'], destructiveButtonIndex: 0, cancelButtonIndex: 1 },
       index => index === 0 && onDelete(entry),
     );
 
   const current = player.entry;
+  const listBottom = { paddingBottom: (current ? 96 : 24) + insets.bottom };
 
   return (
     <View style={[styles.screen, { paddingTop: insets.top }]}>
-      {/* Header */}
       <View style={styles.top}>
-        <View>
-          <Text style={styles.h1}>Library</Text>
-          <Text style={styles.subheading}>
-            {entries.length === 0
-              ? 'Your reading shelf'
-              : `${entries.length} ${entries.length === 1 ? 'document' : 'documents'}`}
-          </Text>
-        </View>
-
+        <Text style={styles.h1}>Library</Text>
         <Pressable
           testID="library-add"
           accessibilityLabel="Add document"
-          style={({ pressed }) => [styles.addButton, pressed && styles.addButtonPressed]}
+          hitSlop={8}
+          style={({ pressed }) => [styles.add, pressed && styles.pressed]}
           onPress={showAddMenu}>
-          <PlusIcon size={18} color={colors.onAccent} />
+          <PlusIcon size={20} color={colors.accent} />
         </Pressable>
       </View>
 
-      {/* Search Bar */}
       <View style={styles.search}>
-        <SearchIcon size={16} color={colors.muted} />
+        <SearchIcon size={15} color={colors.muted} />
         <TextInput
           testID="library-search"
           style={styles.searchInput}
-          placeholder="Search documents"
+          placeholder="Search"
           placeholderTextColor={colors.muted}
           value={query}
           onChangeText={setQuery}
@@ -126,61 +119,46 @@ export function LibraryScreen({
         />
       </View>
 
-      {/* Document List */}
-      <FlatList
-        data={shown}
+      <SectionList
+        sections={sections}
         keyExtractor={e => e.id}
-        contentContainerStyle={[
-          styles.list,
-          { paddingBottom: current ? 130 : insets.bottom + 32 },
-        ]}
+        contentContainerStyle={[styles.list, listBottom]}
         keyboardDismissMode="on-drag"
-        ListHeaderComponent={
-          shown.length ? <Text style={styles.section}>Recent Documents</Text> : undefined
-        }
+        stickySectionHeadersEnabled={false}
+        renderSectionHeader={({ section }) => <Text style={styles.groupTitle}>{section.title}</Text>}
+        renderItem={({ item, index, section }) => (
+          <DocumentRow
+            entry={item}
+            speed={speed}
+            hero={section.key === 'continue'}
+            first={index === 0}
+            last={index === section.data.length - 1}
+            onPress={() => onOpen(item)}
+            onLongPress={() => showEntryMenu(item)}
+          />
+        )}
         ListEmptyComponent={
-          <View style={styles.emptyContainer}>
-            <View style={styles.emptyIconCircle}>
-              <BookOpenIcon size={28} color={colors.muted} />
-            </View>
-            <Text style={styles.emptyTitle}>
-              {query ? 'No matching documents' : 'Your library is empty'}
-            </Text>
-            <Text style={styles.emptySubtitle}>
+          <View style={styles.empty}>
+            <Text style={styles.emptyTitle}>{query ? 'No matching documents' : 'Your library is empty'}</Text>
+            <Text style={styles.emptySub}>
               {query
-                ? 'Try searching with another keyword.'
-                : 'Import an EPUB, PDF, Word doc, or paste text to start listening.'}
+                ? 'Try another word.'
+                : 'Open an EPUB, PDF, Word or text file, or paste text, to start listening.'}
             </Text>
-
             {!query ? (
               <View style={styles.emptyActions}>
-                <Pressable
-                  style={styles.emptyButton}
-                  onPress={() => setPasting(true)}>
+                <Pressable style={styles.emptyButton} onPress={() => setPasting(true)}>
                   <Text style={styles.emptyButtonText}>Paste text</Text>
                 </Pressable>
-                <Pressable
-                  style={[styles.emptyButton, styles.emptyButtonPrimary]}
-                  onPress={importFile}>
-                  <Text style={[styles.emptyButtonText, styles.emptyButtonPrimaryText]}>
-                    Import file
-                  </Text>
+                <Pressable style={[styles.emptyButton, styles.emptyPrimary]} onPress={importFile}>
+                  <Text style={[styles.emptyButtonText, styles.onAccent]}>Open a file</Text>
                 </Pressable>
               </View>
             ) : null}
           </View>
         }
-        renderItem={({ item }) => (
-          <DocumentRow
-            entry={item}
-            speed={speed}
-            onPress={() => onOpen(item)}
-            onLongPress={() => showEntryMenu(item)}
-          />
-        )}
       />
 
-      {/* Persistent Mini Player */}
       {current ? (
         <MiniPlayer
           player={player}
@@ -191,7 +169,6 @@ export function LibraryScreen({
         />
       ) : null}
 
-      {/* Paste Modal */}
       <PasteSheet
         visible={pasting}
         onCancel={() => setPasting(false)}
@@ -204,72 +181,77 @@ export function LibraryScreen({
   );
 }
 
-function progressLabel(entry: LibraryEntry, speed: number) {
+function progressOf(entry: LibraryEntry) {
+  return entry.text.length ? entry.position / entry.text.length : 0;
+}
+
+function timeLabel(entry: LibraryEntry, speed: number) {
   if (isFinished(entry)) return 'Finished';
-  return formatMinutesLeft(minutesFor(entry.text.length - entry.position, speed));
+  const minutes = minutesFor(entry.text.length - entry.position, speed);
+  return entry.position > 0 ? formatMinutesLeft(minutes) : formatMinutesLeft(minutes).replace(/ left$/, '');
+}
+
+/** The document's cover, or for a document without one a thin frame with its initial. */
+function Cover({ entry, width }: { entry: LibraryEntry; width: number }) {
+  const uri = coverUri(entry);
+  const size = { width, height: Math.round(width * 1.5) };
+  if (uri) return <Image source={{ uri }} style={[styles.cover, size]} resizeMode="cover" />;
+  return (
+    <View style={[styles.cover, styles.coverBlank, size]}>
+      <Text style={[styles.initial, { fontSize: width * 0.45 }]}>
+        {entry.title.trim().charAt(0).toLocaleUpperCase() || '·'}
+      </Text>
+    </View>
+  );
 }
 
 function DocumentRow(props: {
   entry: LibraryEntry;
   speed: number;
+  hero: boolean;
+  first: boolean;
+  last: boolean;
   onPress: () => void;
   onLongPress: () => void;
 }) {
-  const { entry } = props;
-  const tile = formatTile[entry.format];
-  const progress = entry.text.length ? entry.position / entry.text.length : 0;
+  const { entry, hero } = props;
   const finished = isFinished(entry);
+  const meta = [FORMAT_LABEL[entry.format], timeLabel(entry, props.speed)].join(' · ');
 
   return (
     <Pressable
       testID={`doc-${entry.id}`}
-      style={({ pressed }) => [styles.docCard, pressed && styles.docCardPressed]}
+      style={({ pressed }) => [
+        styles.row,
+        hero && styles.heroRow,
+        props.first && styles.rowFirst,
+        props.last && styles.rowLast,
+        pressed && styles.rowPressed,
+      ]}
       onPress={props.onPress}
       onLongPress={props.onLongPress}>
-      {/* Book Cover Tile */}
-      <View style={[styles.cover, { backgroundColor: tile.tint }]}>
-        <View style={styles.coverSpine} />
-        <Text style={[styles.coverLabel, { color: tile.ink }]}>{tile.label}</Text>
-      </View>
-
-      {/* Content Meta */}
-      <View style={styles.meta}>
-        <Text style={styles.title} numberOfLines={2}>
+      {!props.first ? <View style={[styles.separator, hero ? styles.separatorHero : styles.separatorRow]} /> : null}
+      <Cover entry={entry} width={hero ? 56 : 32} />
+      <View style={styles.rowText}>
+        <Text style={[styles.title, hero && styles.heroTitle]} numberOfLines={2}>
           {entry.title}
         </Text>
-
-        <View style={styles.metaFooter}>
-          <View
-            style={[
-              styles.statusChip,
-              finished && styles.statusChipFinished,
-            ]}>
-            {finished ? (
-              <CheckIcon size={12} color={colors.success} />
-            ) : (
-              <ClockIcon size={11} color={colors.muted} />
-            )}
-            <Text
-              style={[
-                styles.statusText,
-                finished && styles.statusTextFinished,
-              ]}>
-              {progressLabel(entry, props.speed)}
-            </Text>
+        <Text style={styles.meta} numberOfLines={1}>
+          {meta}
+        </Text>
+        {hero ? (
+          <View style={styles.bar}>
+            <View style={[styles.barFill, { width: `${Math.round(progressOf(entry) * 100)}%` }]} />
           </View>
-        </View>
-
-        {/* Micro Progress Bar */}
-        <View style={styles.progressBar}>
-          <View
-            style={[
-              styles.progressBarFill,
-              { width: `${Math.round(progress * 100)}%` },
-              finished && styles.progressBarFinished,
-            ]}
-          />
-        </View>
+        ) : null}
       </View>
+      {hero ? null : finished ? (
+        <CheckIcon size={16} color={colors.accent} />
+      ) : entry.position > 0 ? (
+        <ProgressRing size={22} progress={progressOf(entry)} color={colors.accent} track={colors.track} />
+      ) : (
+        <Text style={styles.meta}>New</Text>
+      )}
     </Pressable>
   );
 }
@@ -283,52 +265,34 @@ function MiniPlayer(props: {
 }) {
   const { player, entry } = props;
   const speaking = player.status === 'speaking';
-  const progress = entry.text.length ? entry.position / entry.text.length : 0;
 
   return (
     <Pressable
       testID="mini-player"
-      style={({ pressed }) => [
-        styles.miniIsland,
-        { bottom: Math.max(props.bottom, 10) + 6 },
-        pressed && styles.miniIslandPressed,
-      ]}
+      style={({ pressed }) => [styles.mini, { bottom: Math.max(props.bottom, 10) + 4 }, pressed && styles.pressed]}
       onPress={props.onOpen}>
-      <View style={styles.miniMeta}>
+      <Cover entry={entry} width={26} />
+      <View style={styles.rowText}>
         <Text style={styles.miniTitle} numberOfLines={1}>
           {entry.title}
         </Text>
         <Text style={styles.miniSub} numberOfLines={1}>
-          {[player.voice?.name, `${props.speed}×`, progressLabel(entry, props.speed)]
-            .filter(Boolean)
-            .join(' · ')}
+          {[player.voice?.name, `${props.speed}×`].filter(Boolean).join(' · ')}
         </Text>
       </View>
-
       <Pressable
         testID="mini-play-pause"
         accessibilityLabel={speaking ? 'Pause' : 'Play'}
-        style={styles.miniPlayButton}
+        hitSlop={10}
+        style={styles.miniButton}
         onPress={() => player.toggle(entry)}>
-        {speaking ? (
-          <PauseIcon size={16} color={colors.inverse} />
-        ) : (
-          <PlayIcon size={16} color={colors.inverse} />
-        )}
+        {speaking ? <PauseIcon size={18} color={colors.text} /> : <PlayIcon size={18} color={colors.text} />}
       </Pressable>
-
-      <View style={styles.miniTrack}>
-        <View style={[styles.miniFill, { width: `${Math.round(progress * 100)}%` }]} />
-      </View>
     </Pressable>
   );
 }
 
-function PasteSheet(props: {
-  visible: boolean;
-  onCancel: () => void;
-  onDone: (text: string) => void;
-}) {
+function PasteSheet(props: { visible: boolean; onCancel: () => void; onDone: (text: string) => void }) {
   const [text, setText] = useState('');
 
   const close = (done: boolean) => {
@@ -343,34 +307,26 @@ function PasteSheet(props: {
       animationType="slide"
       presentationStyle="pageSheet"
       onRequestClose={() => close(false)}>
-      <SafeAreaView style={styles.pasteSheet} edges={['bottom']}>
-        <View style={styles.pasteHeader}>
+      <SafeAreaView style={styles.sheet} edges={['bottom']}>
+        <View style={styles.sheetHeader}>
           <Pressable style={styles.textButton} onPress={() => close(false)}>
-            <Text style={styles.cancelText}>Cancel</Text>
+            <Text style={styles.sheetAction}>Cancel</Text>
           </Pressable>
-          <Text style={styles.pasteTitle}>Add Text</Text>
+          <Text style={styles.sheetTitle}>Paste Text</Text>
           <Pressable
             testID="paste-done"
             style={styles.textButton}
             disabled={!text.trim()}
             onPress={() => close(true)}>
-            <Text
-              style={[
-                styles.doneText,
-                styles.bold,
-                !text.trim() && styles.disabled,
-              ]}>
-              Add
-            </Text>
+            <Text style={[styles.sheetAction, styles.sheetDone, !text.trim() && styles.disabled]}>Add</Text>
           </Pressable>
         </View>
-
         <TextInput
           testID="paste-input"
           style={styles.pasteInput}
           multiline
           autoFocus
-          placeholder="Paste or type text to read aloud..."
+          placeholder="Paste or type text to read aloud"
           placeholderTextColor={colors.muted}
           value={text}
           onChangeText={setText}
@@ -382,316 +338,115 @@ function PasteSheet(props: {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.background },
+  pressed: { opacity: 0.6 },
   top: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-end',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingTop: 16,
-    paddingBottom: 8,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 10,
   },
-  h1: {
-    fontSize: 34,
-    fontWeight: '800',
-    color: colors.text,
-    letterSpacing: -0.8,
-  },
-  subheading: {
-    fontSize: 13,
-    color: colors.muted,
-    marginTop: 2,
-  },
-  addButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: colors.accent,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: colors.accent,
-    shadowOpacity: 0.35,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 3 },
-  },
-  addButtonPressed: {
-    transform: [{ scale: 0.94 }],
-  },
+  h1: { fontSize: 34, fontWeight: '700', color: colors.text, letterSpacing: 0.37 },
+  add: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center', marginBottom: 2 },
   search: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    marginHorizontal: 20,
-    marginTop: 10,
+    gap: 6,
+    marginHorizontal: 16,
     marginBottom: 6,
-    paddingHorizontal: 14,
-    height: 42,
-    borderRadius: 14,
+    paddingHorizontal: 9,
+    height: 36,
+    borderRadius: 10,
     backgroundColor: colors.chip,
   },
-  searchInput: {
-    flex: 1,
-    fontSize: 16,
-    color: colors.text,
-    height: 42,
-  },
-  list: {
-    paddingHorizontal: 16,
-    gap: 12,
-  },
-  section: {
-    paddingTop: 18,
-    paddingHorizontal: 6,
-    paddingBottom: 8,
-    fontSize: 12,
-    fontWeight: '700',
+  searchInput: { flex: 1, fontSize: 17, color: colors.text, height: 36 },
+  list: { paddingHorizontal: 16 },
+  groupTitle: {
+    marginTop: 22,
+    marginBottom: 7,
+    marginHorizontal: 16,
+    fontSize: 13,
     color: colors.muted,
     textTransform: 'uppercase',
-    letterSpacing: 1,
   },
-  docCard: {
+  row: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 14,
-    padding: 14,
-    borderRadius: 20,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.borderLight,
-    shadowColor: '#191816',
-    shadowOpacity: 0.04,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 2 },
-  },
-  docCardPressed: {
-    opacity: 0.85,
-    transform: [{ scale: 0.99 }],
-  },
-  cover: {
-    width: 52,
-    height: 68,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-    overflow: 'hidden',
-  },
-  coverSpine: {
-    position: 'absolute',
-    left: 0,
-    top: 0,
-    bottom: 0,
-    width: 4,
-    backgroundColor: 'rgba(0,0,0,0.08)',
-  },
-  coverLabel: {
-    fontSize: 11,
-    fontWeight: '800',
-    letterSpacing: 0.6,
-  },
-  meta: {
-    flex: 1,
-    minWidth: 0,
-  },
-  title: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: colors.text,
-    lineHeight: 22,
-    letterSpacing: -0.2,
-  },
-  metaFooter: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 6,
-    marginBottom: 8,
-  },
-  statusChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 6,
-    backgroundColor: colors.chip,
-  },
-  statusChipFinished: {
-    backgroundColor: '#DCFCE7',
-  },
-  statusText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: colors.muted,
-    fontVariant: ['tabular-nums'],
-  },
-  statusTextFinished: {
-    color: colors.success,
-  },
-  progressBar: {
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: colors.track,
-    overflow: 'hidden',
-  },
-  progressBarFill: {
-    height: 4,
-    backgroundColor: colors.accent,
-    borderRadius: 2,
-  },
-  progressBarFinished: {
-    backgroundColor: colors.success,
-  },
-  emptyContainer: {
-    alignItems: 'center',
-    marginTop: 48,
-    paddingHorizontal: 24,
-  },
-  emptyIconCircle: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: colors.chip,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 16,
-  },
-  emptyTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: colors.text,
-    marginBottom: 6,
-  },
-  emptySubtitle: {
-    fontSize: 14,
-    lineHeight: 20,
-    color: colors.muted,
-    textAlign: 'center',
-    marginBottom: 20,
-  },
-  emptyActions: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  emptyButton: {
-    paddingHorizontal: 16,
     paddingVertical: 10,
-    borderRadius: 12,
-    backgroundColor: colors.chip,
+    paddingHorizontal: 12,
+    backgroundColor: colors.surface,
   },
-  emptyButtonPrimary: {
-    backgroundColor: colors.accent,
-  },
-  emptyButtonText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: colors.text,
-  },
-  emptyButtonPrimaryText: {
-    color: colors.onAccent,
-  },
-  miniIsland: {
+  heroRow: { paddingVertical: 12, alignItems: 'flex-start' },
+  rowFirst: { borderTopLeftRadius: 12, borderTopRightRadius: 12 },
+  rowLast: { borderBottomLeftRadius: 12, borderBottomRightRadius: 12 },
+  rowPressed: { backgroundColor: colors.chip },
+  separator: { position: 'absolute', top: 0, right: 0, height: StyleSheet.hairlineWidth, backgroundColor: colors.border },
+  separatorHero: { left: 82 },
+  separatorRow: { left: 58 },
+  cover: { borderRadius: 2, borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(23,25,26,0.18)' },
+  coverBlank: { borderColor: colors.border, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  initial: { fontFamily: fonts.readItalic, color: colors.muted },
+  rowText: { flex: 1, minWidth: 0, gap: 2 },
+  title: { fontFamily: fonts.readMedium, fontSize: 16, lineHeight: 21, color: colors.text },
+  heroTitle: { fontSize: 18, lineHeight: 24, marginTop: 2 },
+  meta: { fontSize: 13, color: colors.muted, fontVariant: ['tabular-nums'] },
+  bar: { height: 3, borderRadius: 1.5, marginTop: 10, backgroundColor: colors.track, overflow: 'hidden' },
+  barFill: { height: 3, backgroundColor: colors.accent },
+  empty: { alignItems: 'center', marginTop: 64, paddingHorizontal: 24 },
+  emptyTitle: { fontFamily: fonts.readMedium, fontSize: 20, color: colors.text, marginBottom: 6 },
+  emptySub: { fontSize: 15, lineHeight: 21, color: colors.muted, textAlign: 'center', marginBottom: 20 },
+  emptyActions: { flexDirection: 'row', gap: 12 },
+  emptyButton: { paddingHorizontal: 16, paddingVertical: 11, borderRadius: 10, backgroundColor: colors.chip },
+  emptyPrimary: { backgroundColor: colors.accent },
+  emptyButtonText: { fontSize: 15, fontWeight: '600', color: colors.text },
+  onAccent: { color: colors.onAccent },
+  mini: {
     position: 'absolute',
-    left: 16,
-    right: 16,
-    height: 64,
-    borderRadius: 22,
-    backgroundColor: colors.inverse,
+    left: 8,
+    right: 8,
+    height: 60,
+    borderRadius: 16,
+    backgroundColor: 'rgba(251,251,248,0.97)',
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    paddingLeft: 18,
-    paddingRight: 12,
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOpacity: 0.25,
-    shadowRadius: 16,
+    paddingLeft: 12,
+    paddingRight: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(23,25,26,0.1)',
+    shadowColor: '#17191A',
+    shadowOpacity: 0.16,
+    shadowRadius: 18,
     shadowOffset: { width: 0, height: 6 },
-    elevation: 10,
   },
-  miniIslandPressed: {
-    opacity: 0.95,
-  },
-  miniMeta: {
-    flex: 1,
-    minWidth: 0,
-  },
-  miniTitle: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: colors.onInverse,
-  },
-  miniSub: {
-    fontSize: 12,
-    color: colors.onInverseMuted,
-    marginTop: 2,
-    fontVariant: ['tabular-nums'],
-  },
-  miniPlayButton: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    backgroundColor: colors.onInverse,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  miniTrack: {
-    position: 'absolute',
-    left: 18,
-    right: 18,
-    bottom: 0,
-    height: 2.5,
-    backgroundColor: 'rgba(255,255,255,0.15)',
-  },
-  miniFill: {
-    height: 2.5,
-    backgroundColor: colors.accent,
-  },
-  pasteSheet: {
-    flex: 1,
-    backgroundColor: colors.background,
-  },
-  pasteHeader: {
+  miniTitle: { fontSize: 15, fontWeight: '600', color: colors.text },
+  miniSub: { fontSize: 12.5, color: colors.muted },
+  miniButton: { width: 32, height: 32, alignItems: 'center', justifyContent: 'center' },
+  sheet: { flex: 1, backgroundColor: colors.background },
+  sheetHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 12,
-    paddingTop: 12,
+    paddingHorizontal: 8,
+    paddingTop: 10,
   },
-  pasteTitle: {
-    fontSize: 17,
-    fontWeight: '700',
-    color: colors.text,
-  },
-  textButton: {
-    minHeight: 44,
-    minWidth: 64,
-    paddingHorizontal: 12,
-    justifyContent: 'center',
-  },
-  cancelText: {
-    fontSize: 16,
-    color: colors.muted,
-  },
-  doneText: {
-    fontSize: 16,
-    color: colors.accent,
-    textAlign: 'center',
-  },
-  bold: {
-    fontWeight: '700',
-  },
-  disabled: {
-    opacity: 0.35,
-  },
+  sheetTitle: { fontSize: 17, fontWeight: '600', color: colors.text },
+  textButton: { minHeight: 44, minWidth: 64, paddingHorizontal: 10, justifyContent: 'center' },
+  sheetAction: { fontSize: 17, color: colors.accent },
+  sheetDone: { fontWeight: '600', textAlign: 'right' },
+  disabled: { opacity: 0.35 },
   pasteInput: {
     flex: 1,
     margin: 16,
     padding: 16,
-    fontSize: 16,
-    lineHeight: 24,
+    fontFamily: fonts.read,
+    fontSize: 17,
+    lineHeight: 26,
     color: colors.text,
     backgroundColor: colors.surface,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: colors.borderLight,
+    borderRadius: 12,
     textAlignVertical: 'top',
   },
 });

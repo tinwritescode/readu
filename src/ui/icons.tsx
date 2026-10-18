@@ -35,6 +35,58 @@ export function PauseIcon({ size = 20, color }: IconProps) {
   );
 }
 
+/**
+ * Circular progress drawn from two clipped half rings. Each half shows a quarter-bordered circle
+ * (top and right borders, an arc from -45° to 135°) rotated so the arc ends at the progress angle.
+ */
+export function ProgressRing({
+  size = 22,
+  stroke = 2.5,
+  progress,
+  color,
+  track,
+}: IconProps & { stroke?: number; progress: number; track: string }) {
+  const deg = Math.max(0, Math.min(1, progress)) * 360;
+  const arc = (rotate: number) => (
+    <View
+      style={{
+        position: 'absolute',
+        top: 0,
+        width: size,
+        height: size,
+        borderRadius: size / 2,
+        borderWidth: stroke,
+        borderColor: 'transparent',
+        borderTopColor: color,
+        borderRightColor: color,
+        transform: [{ rotate: `${rotate}deg` }],
+      }}
+    />
+  );
+  const half = (side: 'left' | 'right', rotate: number | null) => (
+    <View
+      style={{
+        position: 'absolute',
+        top: 0,
+        width: size / 2,
+        height: size,
+        overflow: 'hidden',
+        [side]: 0,
+      }}>
+      {rotate === null ? null : (
+        <View style={{ position: 'absolute', top: 0, width: size, height: size, [side]: 0 }}>{arc(rotate)}</View>
+      )}
+    </View>
+  );
+  return (
+    <View style={{ width: size, height: size }}>
+      <View style={{ width: size, height: size, borderRadius: size / 2, borderWidth: stroke, borderColor: track }} />
+      {half('right', deg === 0 ? null : deg <= 180 ? deg - 135 : 45)}
+      {half('left', deg <= 180 ? null : deg - 135)}
+    </View>
+  );
+}
+
 export function StopIcon({ size = 14, color }: IconProps) {
   return <View style={{ width: size, height: size, borderRadius: size * 0.18, backgroundColor: color }} />;
 }

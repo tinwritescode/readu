@@ -48,6 +48,29 @@ final class VttsReadium: NSObject {
       "kind": isPDF ? "pdf" : "epub",
       "title": publication.metadata.title ?? NSNull(),
       isPDF ? "pages" : "paragraphs": blocks,
+      "cover": await saveCover(of: publication) ?? NSNull(),
     ]
+  }
+
+  /// The EPUB's cover image, or for a PDF its first page, saved as a JPEG in
+  /// `coversDirectory`. Returns the file name, since the app container path changes between installs.
+  private static func saveCover(of publication: Publication) async -> String? {
+    // 3× the largest size the library shows (64pt wide at 2:3).
+    guard let image = try? await publication.coverFitting(maxSize: CGSize(width: 192, height: 288)).get(),
+          let data = image.jpegData(compressionQuality: 0.8)
+    else { return nil }
+    let name = "\(UUID().uuidString).jpg"
+    do {
+      try FileManager.default.createDirectory(at: coversDirectory, withIntermediateDirectories: true)
+      try data.write(to: coversDirectory.appendingPathComponent(name))
+      return name
+    } catch {
+      return nil
+    }
+  }
+
+  @objc static var coversDirectory: URL {
+    FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+      .appendingPathComponent("covers", isDirectory: true)
   }
 }

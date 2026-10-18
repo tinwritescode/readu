@@ -5,6 +5,8 @@ export interface ReaderDocument {
   title: string;
   format: DocumentFormat;
   text: string;
+  /** File name of the cover image in the app's covers directory (EPUB cover or PDF first page). */
+  cover?: string;
 }
 
 /** A document in the library plus where the reader left off. */

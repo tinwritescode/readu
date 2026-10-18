@@ -11,25 +11,15 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { LibraryEntry, TextRange } from '../domain/types';
-import { formatClock, formatMinutesLeft, minutesFor } from '../features/reader/estimate';
+import { formatClock, minutesFor } from '../features/reader/estimate';
 import { sentenceIndexAt, textBlocks } from '../features/reader/textRanges';
 import type { Player } from '../features/reader/usePlayer';
-import {
-  ArrowDownIcon,
-  ChevronIcon,
-  ClockIcon,
-  MoreIcon,
-  PauseIcon,
-  PlayIcon,
-  SkipIcon,
-} from './icons';
-import { colors, readingFont } from './theme';
+import { ArrowDownIcon, ChevronIcon, MoreIcon, PauseIcon, PlayIcon, SkipIcon } from './icons';
+import { colors, fonts, labelText } from './theme';
 
 export const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
 const FONT_SIZES = [16, 18, 20, 23, 26];
 const SLEEP_MINUTES = [15, 30, 45, 60];
-
-const QUALITY_LABEL = { premium: 'Premium', enhanced: 'Enhanced', default: 'Default' } as const;
 
 interface Props {
   entry: LibraryEntry;
@@ -41,15 +31,7 @@ interface Props {
   onOpenVoices: () => void;
 }
 
-export function ReaderScreen({
-  entry,
-  player,
-  speed,
-  fontSize,
-  onFontSize,
-  onBack,
-  onOpenVoices,
-}: Props) {
+export function ReaderScreen({ entry, player, speed, fontSize, onFontSize, onBack, onOpenVoices }: Props) {
   const insets = useSafeAreaInsets();
   const list = useRef<FlatList<TextRange>>(null);
   const [following, setFollowing] = useState(true);
@@ -70,59 +52,45 @@ export function ReaderScreen({
     if (following) scrollToCurrent();
   }, [currentBlock, following]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const lineHeight = Math.round(fontSize * 1.68);
-  const remaining = minutesFor(entry.text.length - (highlight?.start ?? entry.position), speed);
-
-  const cycleFontSize = () => {
-    const nextIdx = (FONT_SIZES.indexOf(fontSize) + 1) % FONT_SIZES.length;
-    onFontSize(FONT_SIZES[nextIdx]);
-  };
+  const lineHeight = Math.round(fontSize * 1.65);
+  const cycleFontSize = () => onFontSize(FONT_SIZES[(FONT_SIZES.indexOf(fontSize) + 1) % FONT_SIZES.length]);
 
   return (
     <View style={[styles.screen, { paddingTop: insets.top }]}>
-      {/* Top Navigation Bar */}
       <View style={styles.nav}>
         <Pressable
           testID="reader-back"
           accessibilityLabel="Back to library"
-          style={({ pressed }) => [styles.navButton, pressed && styles.navButtonPressed]}
+          hitSlop={8}
+          style={({ pressed }) => [styles.navSide, pressed && styles.pressed]}
           onPress={onBack}>
-          <ChevronIcon direction="left" size={13} color={colors.text} />
+          <ChevronIcon direction="left" size={10} color={colors.muted} />
+          <Text style={labelText}>Library</Text>
         </Pressable>
-
-        <View style={styles.navTitle}>
-          <Text style={styles.navTitleText} numberOfLines={1}>
-            {entry.title}
-          </Text>
-          <View style={styles.metaBadge}>
-            <ClockIcon size={11} color={colors.muted} />
-            <Text style={styles.navSub}>{formatMinutesLeft(remaining)}</Text>
-          </View>
-        </View>
-
+        <Text style={styles.navTitle} numberOfLines={1}>
+          {entry.title}
+        </Text>
         <Pressable
           testID="font-size"
           accessibilityLabel="Text size"
-          style={({ pressed }) => [styles.navButton, pressed && styles.navButtonPressed]}
+          hitSlop={8}
+          style={({ pressed }) => [styles.navSide, styles.navRight, pressed && styles.pressed]}
           onPress={cycleFontSize}>
           <Text style={styles.aa}>Aa</Text>
         </Pressable>
       </View>
 
-      {/* Reading Canvas */}
       <FlatList
         ref={list}
         testID="reader-text"
+        style={styles.flex}
         data={blocks}
         extraData={`${current}:${highlight?.start}:${highlight?.end}:${fontSize}`}
         keyExtractor={b => String(b.start)}
-        contentContainerStyle={[styles.page, { paddingBottom: 220 + insets.bottom }]}
+        contentContainerStyle={styles.page}
         onScrollBeginDrag={() => setFollowing(false)}
         onScrollToIndexFailed={info => {
-          list.current?.scrollToOffset({
-            offset: info.averageItemLength * info.index,
-            animated: false,
-          });
+          list.current?.scrollToOffset({ offset: info.averageItemLength * info.index, animated: false });
           requestAnimationFrame(() => scrollToCurrent(false));
         }}
         renderItem={({ item }) => (
@@ -141,30 +109,22 @@ export function ReaderScreen({
         )}
       />
 
-      {/* Floating "Back to current" pill */}
-      {playing && !following ? (
-        <Pressable
-          testID="back-to-current"
-          style={[styles.followPill, { bottom: 180 + insets.bottom }]}
-          onPress={() => {
-            setFollowing(true);
-            scrollToCurrent(true);
-          }}>
-          <ArrowDownIcon size={12} color={colors.accent} />
-          <Text style={styles.followPillText}>Follow along</Text>
-        </Pressable>
-      ) : null}
-
       {player.error ? <Text style={styles.error}>{player.error}</Text> : null}
 
-      {/* Floating Island Player Dock */}
-      <View
-        style={[
-          styles.playerDock,
-          {
-            bottom: Math.max(insets.bottom, 12),
-          },
-        ]}>
+      <View style={[styles.dock, { paddingBottom: Math.max(insets.bottom, 12) + 4 }]}>
+        {playing && !following ? (
+          <Pressable
+            testID="back-to-current"
+            style={styles.followPill}
+            onPress={() => {
+              setFollowing(true);
+              scrollToCurrent(true);
+            }}>
+            <ArrowDownIcon size={11} color={colors.accent} />
+            <Text style={[labelText, styles.accentText]}>Follow along</Text>
+          </Pressable>
+        ) : null}
+
         <Scrubber
           entry={entry}
           at={highlight?.start ?? entry.position}
@@ -176,83 +136,62 @@ export function ReaderScreen({
           }}
         />
 
-        <View style={styles.transport}>
-          <Pressable
-            testID="skip-back"
-            accessibilityLabel="Previous sentence"
-            style={({ pressed }) => [styles.skipButton, pressed && styles.skipButtonPressed]}
-            onPress={() => player.skip(-1)}>
-            <SkipIcon direction={-1} size={20} color={colors.text} />
-          </Pressable>
+        <View style={styles.controls}>
+          <View style={styles.side}>
+            <Pressable
+              testID="speed"
+              accessibilityLabel={`Speed ${speed}×, tap to change`}
+              hitSlop={10}
+              onPress={() => player.setSpeed(SPEEDS[(SPEEDS.indexOf(speed) + 1) % SPEEDS.length])}>
+              <Text style={[labelText, styles.ink]}>{speed}×</Text>
+            </Pressable>
+            <SleepLabel player={player} />
+          </View>
 
-          <Pressable
-            testID="play-pause"
-            accessibilityLabel={player.status === 'speaking' ? 'Pause' : 'Play'}
-            disabled={!player.voice}
-            style={({ pressed }) => [
-              styles.heroPlayButton,
-              !player.voice && styles.disabled,
-              pressed && styles.heroPlayButtonPressed,
-            ]}
-            onPress={() => {
-              setFollowing(true);
-              player.toggle();
-            }}>
-            {player.status === 'speaking' ? (
-              <PauseIcon size={24} color={colors.onAccent} />
-            ) : (
-              <PlayIcon size={24} color={colors.onAccent} />
-            )}
-          </Pressable>
+          <View style={styles.transport}>
+            <Pressable
+              testID="skip-back"
+              accessibilityLabel="Previous sentence"
+              hitSlop={10}
+              style={({ pressed }) => pressed && styles.pressed}
+              onPress={() => player.skip(-1)}>
+              <SkipIcon direction={-1} size={17} color={colors.text} />
+            </Pressable>
+            <Pressable
+              testID="play-pause"
+              accessibilityLabel={player.status === 'speaking' ? 'Pause' : 'Play'}
+              disabled={!player.voice}
+              style={({ pressed }) => [styles.play, !player.voice && styles.disabled, pressed && styles.pressed]}
+              onPress={() => {
+                setFollowing(true);
+                player.toggle();
+              }}>
+              {player.status === 'speaking' ? (
+                <PauseIcon size={18} color={colors.background} />
+              ) : (
+                <PlayIcon size={18} color={colors.background} />
+              )}
+            </Pressable>
+            <Pressable
+              testID="skip-forward"
+              accessibilityLabel="Next sentence"
+              hitSlop={10}
+              style={({ pressed }) => pressed && styles.pressed}
+              onPress={() => player.skip(1)}>
+              <SkipIcon direction={1} size={17} color={colors.text} />
+            </Pressable>
+          </View>
 
-          <Pressable
-            testID="skip-forward"
-            accessibilityLabel="Next sentence"
-            style={({ pressed }) => [styles.skipButton, pressed && styles.skipButtonPressed]}
-            onPress={() => player.skip(1)}>
-            <SkipIcon direction={1} size={20} color={colors.text} />
-          </Pressable>
-        </View>
-
-        {/* Secondary controls row */}
-        <View style={styles.controlsRow}>
-          <Pressable
-            testID="speed"
-            accessibilityLabel={`Speed ${speed}×, tap to change`}
-            style={({ pressed }) => [
-              styles.chip,
-              styles.speedChip,
-              pressed && styles.chipPressed,
-            ]}
-            onPress={() => player.setSpeed(SPEEDS[(SPEEDS.indexOf(speed) + 1) % SPEEDS.length])}>
-            <Text style={styles.chipText}>{speed}×</Text>
-          </Pressable>
-
-          <Pressable
-            testID="voice-open"
-            style={({ pressed }) => [
-              styles.chip,
-              styles.voiceChip,
-              pressed && styles.chipPressed,
-            ]}
-            onPress={onOpenVoices}>
-            <Text style={styles.chipText} numberOfLines={1}>
-              {player.voice ? player.voice.name : 'Choose voice'}
-              {player.voice ? (
-                <Text style={styles.chipMuted}> · {QUALITY_LABEL[player.voice.quality]}</Text>
-              ) : null}
-            </Text>
-          </Pressable>
-
-          <SleepChip player={player} />
-
-          <Pressable
-            testID="more"
-            accessibilityLabel="More options"
-            style={({ pressed }) => [styles.chip, styles.moreChip, pressed && styles.chipPressed]}
-            onPress={showMoreMenu}>
-            <MoreIcon size={16} color={colors.text} />
-          </Pressable>
+          <View style={[styles.side, styles.sideRight]}>
+            <Pressable testID="voice-open" hitSlop={10} style={styles.voice} onPress={onOpenVoices}>
+              <Text style={[labelText, styles.ink]} numberOfLines={1}>
+                {player.voice ? player.voice.name : 'Voice'}
+              </Text>
+            </Pressable>
+            <Pressable testID="more" accessibilityLabel="More options" hitSlop={10} onPress={showMoreMenu}>
+              <MoreIcon size={14} color={colors.text} />
+            </Pressable>
+          </View>
         </View>
       </View>
     </View>
@@ -294,10 +233,7 @@ function Block(props: {
       );
     } else {
       parts.push(
-        <Text
-          key={i}
-          style={current >= 0 && i < current ? styles.read : undefined}
-          onPress={onPress}>
+        <Text key={i} style={current >= 0 && i < current ? styles.read : undefined} onPress={onPress}>
           {text.slice(s.start, s.end)}
         </Text>,
       );
@@ -307,12 +243,7 @@ function Block(props: {
   return <Text style={[styles.body, props.style]}>{parts}</Text>;
 }
 
-function Scrubber(props: {
-  entry: LibraryEntry;
-  at: number;
-  speed: number;
-  onSeek: (fraction: number) => void;
-}) {
+function Scrubber(props: { entry: LibraryEntry; at: number; speed: number; onSeek: (fraction: number) => void }) {
   const width = useRef(1);
   const [drag, setDrag] = useState<number | null>(null);
   const length = props.entry.text.length || 1;
@@ -321,8 +252,7 @@ function Scrubber(props: {
   const toFraction = (x: number) => Math.max(0, Math.min(1, x / width.current));
 
   return (
-    <View style={styles.scrub}>
-      <Text style={styles.time}>{formatClock(total * fraction)}</Text>
+    <View>
       <View
         testID="scrubber"
         style={styles.trackHit}
@@ -339,20 +269,17 @@ function Scrubber(props: {
         <View style={styles.track}>
           <View style={[styles.trackFill, { width: `${fraction * 100}%` }]} />
         </View>
-        <View
-          style={[
-            styles.thumb,
-            { left: `${fraction * 100}%` },
-            drag !== null && styles.thumbActive,
-          ]}
-        />
+        <View style={[styles.thumb, { left: `${fraction * 100}%` }, drag !== null && styles.thumbActive]} />
       </View>
-      <Text style={styles.time}>-{formatClock(total * (1 - fraction))}</Text>
+      <View style={styles.times}>
+        <Text style={styles.time}>{formatClock(total * fraction)}</Text>
+        <Text style={styles.time}>{formatClock(total * (1 - fraction))} LEFT</Text>
+      </View>
     </View>
   );
 }
 
-function SleepChip({ player }: { player: Player }) {
+function SleepLabel({ player }: { player: Player }) {
   const [, tick] = useState(0);
   useEffect(() => {
     if (player.sleepAt === null) return;
@@ -360,10 +287,7 @@ function SleepChip({ player }: { player: Player }) {
     return () => clearInterval(id);
   }, [player.sleepAt]);
 
-  const left =
-    player.sleepAt === null
-      ? null
-      : Math.max(1, Math.ceil((player.sleepAt - Date.now()) / 60_000));
+  const left = player.sleepAt === null ? null : Math.max(1, Math.ceil((player.sleepAt - Date.now()) / 60_000));
 
   const choose = () =>
     ActionSheetIOS.showActionSheetWithOptions(
@@ -385,15 +309,10 @@ function SleepChip({ player }: { player: Player }) {
     <Pressable
       testID="sleep"
       accessibilityLabel={left ? `Sleep timer, ${left} minutes left` : 'Sleep timer'}
-      style={({ pressed }) => [
-        styles.chip,
-        styles.sleepChip,
-        left !== null && styles.chipActive,
-        pressed && styles.chipPressed,
-      ]}
+      hitSlop={10}
       onPress={choose}>
-      <Text style={[styles.chipText, left !== null && styles.chipActiveText]}>
-        {left !== null ? `${left}m` : 'Sleep'}
+      <Text style={[labelText, left !== null ? styles.accentText : styles.ink]}>
+        {left !== null ? `Sleep ${left}m` : 'Sleep'}
       </Text>
     </Pressable>
   );
@@ -420,257 +339,75 @@ function showMoreMenu() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.background },
-  nav: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
+  flex: { flex: 1 },
+  pressed: { opacity: 0.5 },
+  disabled: { opacity: 0.35 },
+  ink: { color: colors.text },
+  accentText: { color: colors.accent },
+  nav: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, height: 44, gap: 12 },
+  navSide: { flexDirection: 'row', alignItems: 'center', gap: 5, minWidth: 72 },
+  navRight: { justifyContent: 'flex-end' },
+  navTitle: { flex: 1, textAlign: 'center', fontFamily: fonts.readItalic, fontSize: 15, color: colors.text },
+  aa: { fontFamily: fonts.read, fontSize: 17, color: colors.text },
+  page: { paddingHorizontal: 24, paddingTop: 18, paddingBottom: 48 },
+  body: { fontFamily: fonts.read, color: colors.reading, marginBottom: 18 },
+  read: { color: colors.read },
+  sentence: { backgroundColor: colors.sentenceHighlight },
+  word: { backgroundColor: colors.wordHighlight, fontFamily: fonts.readSemiBold },
+  error: { color: colors.danger, paddingHorizontal: 20, paddingVertical: 6, textAlign: 'center' },
+  dock: {
+    borderTopWidth: 1.5,
+    borderTopColor: colors.text,
+    backgroundColor: colors.background,
+    paddingTop: 12,
+    paddingHorizontal: 20,
     gap: 10,
-  },
-  navButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.borderLight,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#191816',
-    shadowOpacity: 0.04,
-    shadowRadius: 4,
-    shadowOffset: { width: 0, height: 2 },
-  },
-  navButtonPressed: {
-    backgroundColor: colors.chip,
-  },
-  navTitle: {
-    flex: 1,
-    alignItems: 'center',
-    minWidth: 0,
-  },
-  navTitleText: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: colors.text,
-    letterSpacing: -0.2,
-  },
-  metaBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    marginTop: 2,
-  },
-  navSub: {
-    fontSize: 12,
-    color: colors.muted,
-    fontVariant: ['tabular-nums'],
-  },
-  aa: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: colors.text,
-  },
-  page: {
-    paddingHorizontal: 24,
-    paddingTop: 16,
-  },
-  body: {
-    fontFamily: readingFont,
-    color: colors.reading,
-    marginBottom: 20,
-    letterSpacing: 0.1,
-  },
-  read: {
-    color: colors.read,
-  },
-  sentence: {
-    backgroundColor: colors.sentenceHighlight,
-    color: colors.text,
-    borderRadius: 6,
-  },
-  word: {
-    backgroundColor: colors.wordHighlight,
-    color: colors.wordHighlightText,
-    borderRadius: 4,
-    overflow: 'hidden',
-    paddingHorizontal: 2,
-    fontWeight: '600',
   },
   followPill: {
     position: 'absolute',
     alignSelf: 'center',
-    height: 38,
-    paddingHorizontal: 16,
-    borderRadius: 19,
-    backgroundColor: colors.surface,
+    top: -48,
+    height: 34,
+    paddingHorizontal: 14,
+    borderRadius: 17,
     borderWidth: 1,
-    borderColor: colors.borderLight,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    shadowColor: '#191816',
-    shadowOpacity: 0.12,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 6,
+    gap: 7,
   },
-  followPillText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: colors.accent,
-  },
-  error: {
-    color: colors.danger,
-    paddingHorizontal: 20,
-    paddingVertical: 6,
-    textAlign: 'center',
-  },
-  playerDock: {
-    position: 'absolute',
-    left: 16,
-    right: 16,
-    backgroundColor: colors.surface,
-    borderRadius: 28,
-    borderWidth: 1,
-    borderColor: colors.borderLight,
-    paddingTop: 14,
-    paddingBottom: 14,
-    paddingHorizontal: 18,
-    shadowColor: '#191816',
-    shadowOpacity: 0.09,
-    shadowRadius: 20,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 8,
-  },
-  scrub: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  time: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: colors.muted,
-    fontVariant: ['tabular-nums'],
-    minWidth: 42,
-    textAlign: 'center',
-  },
-  trackHit: {
-    flex: 1,
-    height: 28,
-    justifyContent: 'center',
-  },
-  track: {
-    height: 5,
-    borderRadius: 2.5,
-    backgroundColor: colors.track,
-    overflow: 'hidden',
-  },
-  trackFill: {
-    height: 5,
-    backgroundColor: colors.accent,
-    borderRadius: 2.5,
-  },
+  trackHit: { height: 20, justifyContent: 'center' },
+  track: { height: 2, backgroundColor: colors.border },
+  trackFill: { height: 2, backgroundColor: colors.text },
   thumb: {
     position: 'absolute',
-    width: 14,
-    height: 14,
-    borderRadius: 7,
-    marginLeft: -7,
-    backgroundColor: colors.accent,
-    shadowColor: '#000',
-    shadowOpacity: 0.15,
-    shadowRadius: 3,
-    shadowOffset: { width: 0, height: 1 },
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    marginLeft: -5,
+    backgroundColor: colors.text,
   },
-  thumbActive: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    marginLeft: -11,
+  thumbActive: { width: 18, height: 18, borderRadius: 9, marginLeft: -9 },
+  times: { flexDirection: 'row', justifyContent: 'space-between' },
+  time: {
+    fontFamily: fonts.label,
+    fontSize: 11,
+    letterSpacing: 0.6,
+    color: colors.muted,
+    fontVariant: ['tabular-nums'],
   },
-  transport: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 28,
-    marginTop: 8,
-    marginBottom: 14,
-  },
-  skipButton: {
+  controls: { flexDirection: 'row', alignItems: 'center', minHeight: 52 },
+  side: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 16 },
+  sideRight: { justifyContent: 'flex-end' },
+  voice: { flexShrink: 1 },
+  transport: { flexDirection: 'row', alignItems: 'center', gap: 22 },
+  play: {
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: colors.chip,
+    backgroundColor: colors.text,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  skipButtonPressed: {
-    opacity: 0.7,
-  },
-  heroPlayButton: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: colors.accent,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: colors.accent,
-    shadowOpacity: 0.35,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
-  },
-  heroPlayButtonPressed: {
-    transform: [{ scale: 0.96 }],
-  },
-  disabled: {
-    opacity: 0.35,
-  },
-  controlsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  chip: {
-    height: 40,
-    borderRadius: 12,
-    backgroundColor: colors.chip,
-    paddingHorizontal: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  chipPressed: {
-    opacity: 0.7,
-  },
-  speedChip: {
-    minWidth: 54,
-  },
-  voiceChip: {
-    flex: 1,
-    alignItems: 'flex-start',
-  },
-  sleepChip: {
-    minWidth: 52,
-  },
-  moreChip: {
-    width: 40,
-    paddingHorizontal: 0,
-  },
-  chipText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: colors.text,
-    fontVariant: ['tabular-nums'],
-  },
-  chipMuted: {
-    fontWeight: '500',
-    color: colors.muted,
-  },
-  chipActive: {
-    backgroundColor: colors.accentSoft,
-  },
-  chipActiveText: {
-    color: colors.accent,
   },
 });

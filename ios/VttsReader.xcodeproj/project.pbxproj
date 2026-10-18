@@ -17,6 +17,14 @@
 		A6F64A046AB9E79DECDB0C9E /* VttsZip.m in Sources */ = {isa = PBXBuildFile; fileRef = 82BB1E889155F18C42B89E93 /* VttsZip.m */; };
 		BFE237F9F526555DDB117CE2 /* VttsReadium.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42BBE5A3F7C37E274D105765 /* VttsReadium.swift */; };
 		FAAED3BA367ED65EE9C23439 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB81A68108700A75B9A /* PrivacyInfo.xcprivacy */; };
+		317E71996F274A948D36F557 /* Literata_400Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 737DFD31836F43EF802AFD2E /* Literata_400Regular.ttf */; };
+		B070AEFBB63B4D9BAF62B48B /* Literata_400Regular_Italic.ttf in Resources */ = {isa = PBXBuildFile; fileRef = D8AB894FC4DB4C3F8D30724A /* Literata_400Regular_Italic.ttf */; };
+		B8CE023196DB43FB8AEF371C /* Literata_500Medium.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 57014BEC99BE4520A31C8D65 /* Literata_500Medium.ttf */; };
+		077045D6F062438ABC1C6CD6 /* Literata_600SemiBold.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 24B5111EA9C94BAD836A92B4 /* Literata_600SemiBold.ttf */; };
+		92C5516ABF2C44528E939370 /* PublicSans_500Medium.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 274CDD406D5A4968A4AFB388 /* PublicSans_500Medium.ttf */; };
+		89570B77D2F641D4BF7C7FF5 /* PublicSans_600SemiBold.ttf in Resources */ = {isa = PBXBuildFile; fileRef = 5896BD23D83F494E85A6BD61 /* PublicSans_600SemiBold.ttf */; };
+		B599D1C993324E1C926CBD82 /* Literata-OFL.txt in Resources */ = {isa = PBXBuildFile; fileRef = C1B1408FBE174221A714FD99 /* Literata-OFL.txt */; };
+		B19F37C000894C67B7B5BB2F /* PublicSans-OFL.txt in Resources */ = {isa = PBXBuildFile; fileRef = 62B17D7E0F254D9494F9600E /* PublicSans-OFL.txt */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -36,6 +44,14 @@
 		841493220A2DA50CE5B0EF28 /* VttsZip.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = VttsZip.h; sourceTree = "<group>"; };
 		B8A5C7F95043DBC95C8859A7 /* VttsSpeech.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = VttsSpeech.m; sourceTree = "<group>"; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
+		737DFD31836F43EF802AFD2E /* Literata_400Regular.ttf */ = {isa = PBXFileReference; name = "Literata_400Regular.ttf"; path = "../assets/fonts/Literata_400Regular.ttf"; sourceTree = "<group>"; fileEncoding = undefined; lastKnownFileType = unknown; explicitFileType = undefined; includeInIndex = 0; };
+		D8AB894FC4DB4C3F8D30724A /* Literata_400Regular_Italic.ttf */ = {isa = PBXFileReference; name = "Literata_400Regular_Italic.ttf"; path = "../assets/fonts/Literata_400Regular_Italic.ttf"; sourceTree = "<group>"; fileEncoding = undefined; lastKnownFileType = unknown; explicitFileType = undefined; includeInIndex = 0; };
+		57014BEC99BE4520A31C8D65 /* Literata_500Medium.ttf */ = {isa = PBXFileReference; name = "Literata_500Medium.ttf"; path = "../assets/fonts/Literata_500Medium.ttf"; sourceTree = "<group>"; fileEncoding = undefined; lastKnownFileType = unknown; explicitFileType = undefined; includeInIndex = 0; };
+		24B5111EA9C94BAD836A92B4 /* Literata_600SemiBold.ttf */ = {isa = PBXFileReference; name = "Literata_600SemiBold.ttf"; path = "../assets/fonts/Literata_600SemiBold.ttf"; sourceTree = "<group>"; fileEncoding = undefined; lastKnownFileType = unknown; explicitFileType = undefined; includeInIndex = 0; };
+		274CDD406D5A4968A4AFB388 /* PublicSans_500Medium.ttf */ = {isa = PBXFileReference; name = "PublicSans_500Medium.ttf"; path = "../assets/fonts/PublicSans_500Medium.ttf"; sourceTree = "<group>"; fileEncoding = undefined; lastKnownFileType = unknown; explicitFileType = undefined; includeInIndex = 0; };
+		5896BD23D83F494E85A6BD61 /* PublicSans_600SemiBold.ttf */ = {isa = PBXFileReference; name = "PublicSans_600SemiBold.ttf"; path = "../assets/fonts/PublicSans_600SemiBold.ttf"; sourceTree = "<group>"; fileEncoding = undefined; lastKnownFileType = unknown; explicitFileType = undefined; includeInIndex = 0; };
+		C1B1408FBE174221A714FD99 /* Literata-OFL.txt */ = {isa = PBXFileReference; name = "Literata-OFL.txt"; path = "../assets/fonts/Literata-OFL.txt"; sourceTree = "<group>"; fileEncoding = undefined; lastKnownFileType = unknown; explicitFileType = undefined; includeInIndex = 0; };
+		62B17D7E0F254D9494F9600E /* PublicSans-OFL.txt */ = {isa = PBXFileReference; name = "PublicSans-OFL.txt"; path = "../assets/fonts/PublicSans-OFL.txt"; sourceTree = "<group>"; fileEncoding = undefined; lastKnownFileType = unknown; explicitFileType = undefined; includeInIndex = 0; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -88,6 +104,7 @@
 				83CBBA001A601CBA00E9B192 /* Products */,
 				2D16E6871FA4F8E400B85C8A /* Frameworks */,
 				BBD78D7AC51CEA395F1C20DB /* Pods */,
+				AE38A8839B4E4DD29864C0B9 /* Resources */,
 			);
 			indentWidth = 2;
 			sourceTree = "<group>";
@@ -123,6 +140,22 @@
 			);
 			path = Pods;
 			sourceTree = "<group>";
+		};
+		AE38A8839B4E4DD29864C0B9 /* Resources */ = {
+			isa = "PBXGroup";
+			children = (
+				737DFD31836F43EF802AFD2E /* Literata_400Regular.ttf */,
+				D8AB894FC4DB4C3F8D30724A /* Literata_400Regular_Italic.ttf */,
+				57014BEC99BE4520A31C8D65 /* Literata_500Medium.ttf */,
+				24B5111EA9C94BAD836A92B4 /* Literata_600SemiBold.ttf */,
+				274CDD406D5A4968A4AFB388 /* PublicSans_500Medium.ttf */,
+				5896BD23D83F494E85A6BD61 /* PublicSans_600SemiBold.ttf */,
+				C1B1408FBE174221A714FD99 /* Literata-OFL.txt */,
+				62B17D7E0F254D9494F9600E /* PublicSans-OFL.txt */,
+			);
+			name = Resources;
+			sourceTree = "<group>";
+			path = "";
 		};
 /* End PBXGroup section */
 
@@ -187,6 +220,14 @@
 				81AB9BB82411601600AC10FF /* LaunchScreen.storyboard in Resources */,
 				13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */,
 				FAAED3BA367ED65EE9C23439 /* PrivacyInfo.xcprivacy in Resources */,
+				317E71996F274A948D36F557 /* Literata_400Regular.ttf in Resources */,
+				B070AEFBB63B4D9BAF62B48B /* Literata_400Regular_Italic.ttf in Resources */,
+				B8CE023196DB43FB8AEF371C /* Literata_500Medium.ttf in Resources */,
+				077045D6F062438ABC1C6CD6 /* Literata_600SemiBold.ttf in Resources */,
+				92C5516ABF2C44528E939370 /* PublicSans_500Medium.ttf in Resources */,
+				89570B77D2F641D4BF7C7FF5 /* PublicSans_600SemiBold.ttf in Resources */,
+				B599D1C993324E1C926CBD82 /* Literata-OFL.txt in Resources */,
+				B19F37C000894C67B7B5BB2F /* PublicSans-OFL.txt in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
