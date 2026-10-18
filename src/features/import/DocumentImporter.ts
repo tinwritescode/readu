@@ -30,12 +30,30 @@ export function documentFromPicked(picked: PickedDocument): ReaderDocument {
         : 'This file has no text to read.',
     );
   }
+  const cover = 'cover' in picked ? picked.cover ?? undefined : undefined;
   return {
     id: newId(),
     title: title ?? picked.name.replace(/\.[^.]+$/, ''),
     format: picked.kind,
     text,
+    ...(cover ? { cover } : {}),
   };
+}
+
+interface NativeCovers {
+  coversDirectory?: string;
+  deleteCover(name: string): void;
+}
+
+const covers = NativeModules.VttsDocuments as NativeCovers | undefined;
+
+/** file:// URI of a document's cover, or undefined when it has none. */
+export function coverUri(doc: ReaderDocument): string | undefined {
+  return doc.cover && covers?.coversDirectory ? covers.coversDirectory + doc.cover : undefined;
+}
+
+export function deleteCover(doc: ReaderDocument): void {
+  if (doc.cover) covers?.deleteCover(doc.cover);
 }
 
 /** Opens the Files picker for TXT, PDF, EPUB or DOCX. Resolves null when cancelled. */

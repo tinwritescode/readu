@@ -4,8 +4,8 @@
  */
 export type PickedDocument =
   | { name: string; kind: 'txt'; text: string }
-  | { name: string; kind: 'epub'; title: string | null; paragraphs: string[] }
-  | { name: string; kind: 'pdf'; title: string | null; pages: string[] }
+  | { name: string; kind: 'epub'; title: string | null; paragraphs: string[]; cover?: string | null }
+  | { name: string; kind: 'pdf'; title: string | null; pages: string[]; cover?: string | null }
   | { name: string; kind: 'docx'; files: Record<string, string> };
 
 export interface ExtractedText {

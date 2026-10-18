@@ -1,31 +1,43 @@
+/** Paper and ink: a grey-green paper, near-black ink, moss green for actions, highlighter green for speech. */
 export const colors = {
-  background: '#F6F4EF',
-  surface: '#FFFFFF',
-  chip: '#F1EEE8',
-  track: '#EBE8E1',
-  text: '#1C1B19',
-  reading: '#3A3833',
-  read: '#A8A397',
-  muted: '#807B72',
-  border: '#D6D1C6',
-  accent: '#2F5BE8',
-  accentSoft: '#E3E9FD',
-  onAccent: '#FFFFFF',
-  inverse: '#1C1B19',
-  onInverse: '#F6F4EF',
-  onInverseMuted: '#B8B3A8',
-  sentenceHighlight: '#FBF1C7',
-  wordHighlight: '#2F5BE8',
+  background: '#F1F2EE',
+  surface: '#FBFBF8',
+  chip: '#E4E6E0',
+  track: '#E1E4DE',
+  text: '#17191A',
+  reading: '#17191A',
+  read: '#8F948D',
+  muted: '#6A6F69',
+  border: '#D3D7D0',
+  borderLight: '#E1E4DE',
+  accent: '#1E5B47',
+  accentSoft: '#DCE8D2',
+  onAccent: '#FBFBF8',
+  inverse: '#17191A',
+  onInverse: '#F1F2EE',
+  sentenceHighlight: '#DCE8D2',
+  wordHighlight: '#B9D3A6',
   danger: '#B3261E',
 };
 
-export const readingFont = 'Georgia';
+/**
+ * Bundled in assets/fonts (SIL OFL), named by PostScript name. Literata is the reading face and
+ * document titles; Public Sans the small uppercase labels in the reader. Everything else uses SF Pro.
+ */
+export const fonts = {
+  read: 'Literata-Regular',
+  readItalic: 'Literata-Italic',
+  readMedium: 'Literata-Medium',
+  readSemiBold: 'Literata-SemiBold',
+  label: 'PublicSans-Medium',
+  labelBold: 'PublicSans-SemiBold',
+};
 
-/** Tint and ink for a document's cover tile, by format. */
-export const formatTile = {
-  paste: { tint: '#FBF1C7', ink: '#8A6A00', label: 'TEXT' },
-  txt: { tint: '#E4F2E4', ink: '#2E7D32', label: 'TXT' },
-  epub: { tint: '#E3E9FD', ink: '#2F5BE8', label: 'EPUB' },
-  pdf: { tint: '#FDE4DE', ink: '#B3261E', label: 'PDF' },
-  docx: { tint: '#E6EEF7', ink: '#1F5A96', label: 'DOCX' },
+/** Small uppercase label used in the reader's nav and dock. */
+export const labelText = {
+  fontFamily: fonts.labelBold,
+  fontSize: 11,
+  letterSpacing: 1.1,
+  textTransform: 'uppercase',
+  color: colors.muted,
 } as const;

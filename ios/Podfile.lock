@@ -1423,6 +1423,9 @@ PODS:
     - ReactCommon/turbomodule/core
     - ReactNativeDependencies
     - Yoga
+  - react-native-track-player (4.1.2):
+    - React-Core
+    - SwiftAudioEx (= 1.1.0)
   - React-NativeModulesApple (0.88.0):
     - hermes-engine
     - React-bridging
@@ -1829,8 +1832,11 @@ PODS:
     - ReadiumInternal (~> 3.11.0)
     - ReadiumShared (~> 3.11.0)
   - ReadiumZIPFoundation (3.0.1)
+  - RNFS (2.20.0):
+    - React-Core
   - SocketRocket (0.7.1):
     - ReactNativeDependencies
+  - SwiftAudioEx (1.1.0)
   - SwiftSoup (2.11.3)
   - Yoga (0.0.0):
     - React-Core-prebuilt
@@ -1886,6 +1892,7 @@ DEPENDENCIES:
   - React-microtasksnativemodule (from `../node_modules/react-native/ReactCommon/react/nativemodule/microtasks`)
   - React-mutationobservernativemodule (from `../node_modules/react-native/ReactCommon/react/nativemodule/mutationobserver`)
   - react-native-safe-area-context (from `../node_modules/react-native-safe-area-context`)
+  - react-native-track-player (from `../node_modules/react-native-track-player`)
   - React-NativeModulesApple (from `../node_modules/react-native/ReactCommon/react/nativemodule/core/platform/ios`)
   - React-networking (from `../node_modules/react-native/ReactCommon/react/networking`)
   - React-oscompat (from `../node_modules/react-native/ReactCommon/oscompat`)
@@ -1925,6 +1932,7 @@ DEPENDENCIES:
   - ReactNativeDependencies (from `../node_modules/react-native/third-party-podspecs/ReactNativeDependencies.podspec`)
   - ReadiumShared (= 3.11.0)
   - ReadiumStreamer (= 3.11.0)
+  - RNFS (from `../node_modules/react-native-fs`)
   - SocketRocket (from `build/rndeps-facades/SocketRocket`)
   - Yoga (from `build/rncore-facades/Yoga`)
 
@@ -1938,6 +1946,7 @@ SPEC REPOS:
   trunk:
     - CryptoSwift
     - Minizip
+    - SwiftAudioEx
     - SwiftSoup
 
 EXTERNAL SOURCES:
@@ -2038,6 +2047,8 @@ EXTERNAL SOURCES:
     :path: "../node_modules/react-native/ReactCommon/react/nativemodule/mutationobserver"
   react-native-safe-area-context:
     :path: "../node_modules/react-native-safe-area-context"
+  react-native-track-player:
+    :path: "../node_modules/react-native-track-player"
   React-NativeModulesApple:
     :path: "../node_modules/react-native/ReactCommon/react/nativemodule/core/platform/ios"
   React-networking:
@@ -2112,6 +2123,8 @@ EXTERNAL SOURCES:
     :path: "../node_modules/react-native/ReactCommon"
   ReactNativeDependencies:
     :podspec: "../node_modules/react-native/third-party-podspecs/ReactNativeDependencies.podspec"
+  RNFS:
+    :path: "../node_modules/react-native-fs"
   SocketRocket:
     :path: build/rndeps-facades/SocketRocket
   Yoga:
@@ -2168,6 +2181,7 @@ SPEC CHECKSUMS:
   React-microtasksnativemodule: b8478c203a5d65f5729a5d72564b5625306246d2
   React-mutationobservernativemodule: 4b42b9a136d149799864720e5201a9ce190d2bef
   react-native-safe-area-context: 0b8493ec23174c2d819f3281f80d5505557fcdbe
+  react-native-track-player: 24ecd55d64da8a6471ba96484b67bc9cee6fc629
   React-NativeModulesApple: cb7ad2bcca44bc4e65eff580b7a7c2d2c6914fa0
   React-networking: 71c78b3c3afca071b8534b10ee501177b7938c9b
   React-oscompat: 15c32b3f1e17618e60658411167c2746857fbba5
@@ -2210,7 +2224,9 @@ SPEC CHECKSUMS:
   ReadiumShared: 3c7ab177aeb917cd4bc3543db908a1ca0db7ea4b
   ReadiumStreamer: 2bd80a6825ab623dc06a578eb629c54714fa3d67
   ReadiumZIPFoundation: 4009f635ebc718cc113a388ecb33c773f00639ca
+  RNFS: 4ac0f0ea233904cb798630b3c077808c06931688
   SocketRocket: d57b1af80c029e12a75cd9b218287c67381e4593
+  SwiftAudioEx: f6aa653770f3a0d3851edaf8d834a30aee4a7646
   SwiftSoup: 959c9ac70d7053fbf476341bfac90ab228523f2a
   Yoga: 58b502c52b14ad3c4468805d461fc37d275c2a42
 

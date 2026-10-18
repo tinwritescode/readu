@@ -35,7 +35,7 @@
 		<true/>
 	</dict>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string></string>
+	<string/>
 	<key>RCTNewArchEnabled</key>
 	<true/>
 	<key>UIApplicationSceneManifest</key>
@@ -78,5 +78,14 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<false/>
+	<key>UIAppFonts</key>
+	<array>
+		<string>Literata_400Regular.ttf</string>
+		<string>Literata_400Regular_Italic.ttf</string>
+		<string>Literata_500Medium.ttf</string>
+		<string>Literata_600SemiBold.ttf</string>
+		<string>PublicSans_500Medium.ttf</string>
+		<string>PublicSans_600SemiBold.ttf</string>
+	</array>
 </dict>
 </plist>

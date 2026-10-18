@@ -1,0 +1,194 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "vtts-backend",
+    "version": "1.0.0",
+    "description": "Turns Vietnamese text into MP3 with Kokoro Vietnamese. POST /v1/speech needs a Bearer session token."
+  },
+  "paths": {
+    "/": {
+      "get": {
+        "summary": "Service index",
+        "description": "HTML page for browsers. Send Accept: application/json to get the endpoint list as JSON.",
+        "responses": {
+          "200": {
+            "description": "Service info",
+            "content": {
+              "text/html": { "schema": { "type": "string" } },
+              "application/json": { "schema": { "$ref": "#/components/schemas/Index" } }
+            }
+          }
+        }
+      }
+    },
+    "/healthz": {
+      "get": {
+        "summary": "Health check",
+        "responses": {
+          "200": {
+            "description": "Server is up",
+            "content": { "text/plain": { "schema": { "type": "string", "example": "ok" } } }
+          }
+        }
+      }
+    },
+    "/docs": {
+      "get": {
+        "summary": "Swagger UI",
+        "responses": {
+          "200": { "description": "Interactive API docs", "content": { "text/html": { "schema": { "type": "string" } } } }
+        }
+      }
+    },
+    "/openapi.json": {
+      "get": {
+        "summary": "OpenAPI spec",
+        "responses": {
+          "200": { "description": "This document", "content": { "application/json": { "schema": { "type": "object" } } } }
+        }
+      }
+    },
+    "/v1/auth/code": {
+      "post": {
+        "summary": "Email a login code",
+        "description": "Sends a 6-digit code to the email. The code lasts 10 minutes and one code is sent per email per minute.",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CodeRequest" } } }
+        },
+        "responses": {
+          "200": { "description": "Code sent", "content": { "application/json": { "schema": { "type": "object", "properties": { "status": { "type": "string", "example": "sent" } } } } } },
+          "400": { "description": "Email is not valid", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "429": { "description": "Wait a minute before asking again", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "502": { "description": "Email could not be sent", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/v1/auth/session": {
+      "post": {
+        "summary": "Exchange a code for a session token",
+        "description": "Returns a token to send as Authorization: Bearer on later requests. A code works once and dies after 5 wrong tries.",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/VerifyRequest" } } }
+        },
+        "responses": {
+          "200": { "description": "Session token", "content": { "application/json": { "schema": { "type": "object", "properties": { "token": { "type": "string" } } } } } },
+          "401": { "description": "Code is wrong or expired", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      },
+      "delete": {
+        "summary": "Log out",
+        "description": "Ends the session of the Bearer token.",
+        "security": [{ "bearerAuth": [] }],
+        "responses": {
+          "204": { "description": "Logged out" }
+        }
+      }
+    },
+    "/v1/voices": {
+      "get": {
+        "summary": "List Vietnamese voices",
+        "description": "Kokoro Vietnamese voices.",
+        "security": [{ "bearerAuth": [] }, {}],
+        "responses": {
+          "200": {
+            "description": "Voice list",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Voices" } } }
+          },
+          "401": { "description": "Missing or wrong Bearer token", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "502": { "description": "Kokoro worker failed", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/v1/speech": {
+      "post": {
+        "summary": "Synthesize speech",
+        "description": "Splits text into chunks, synthesizes each with Kokoro, caches chunks on disk, and returns one MP3.",
+        "security": [{ "bearerAuth": [] }, {}],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": { "schema": { "$ref": "#/components/schemas/SpeechRequest" } }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "MP3 audio",
+            "content": { "audio/mpeg": { "schema": { "type": "string", "format": "binary" } } }
+          },
+          "400": { "description": "Bad request", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "401": { "description": "Missing or wrong Bearer token", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "502": { "description": "Kokoro worker failed", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": { "type": "http", "scheme": "bearer" }
+    },
+    "schemas": {
+      "SpeechRequest": {
+        "type": "object",
+        "required": ["text", "voice", "speed"],
+        "properties": {
+          "text": { "type": "string", "maxLength": 20000, "description": "Vietnamese text", "example": "Xin chào các bạn." },
+          "voice": { "type": "string", "pattern": "^[a-z0-9_-]{1,80}$", "description": "Kokoro voice code; unknown codes use mai_loan", "example": "mai_loan" },
+          "speed": { "type": "number", "minimum": 0.1, "maximum": 1.9, "example": 1 }
+        }
+      },
+      "Error": {
+        "type": "object",
+        "properties": { "error": { "type": "string" } }
+      },
+      "CodeRequest": {
+        "type": "object",
+        "required": ["email"],
+        "properties": { "email": { "type": "string", "format": "email", "example": "me@example.com" } }
+      },
+      "VerifyRequest": {
+        "type": "object",
+        "required": ["email", "code"],
+        "properties": {
+          "email": { "type": "string", "format": "email" },
+          "code": { "type": "string", "pattern": "^[0-9]{6}$", "example": "123456" }
+        }
+      },
+      "Voices": {
+        "type": "object",
+        "properties": {
+          "voices": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": { "type": "string", "example": "hn_female_ngochuyen_full_48k-fhg" },
+                "name": { "type": "string", "example": "HN - Ngọc Huyền" },
+                "gender": { "type": "string", "example": "female" }
+              }
+            }
+          }
+        }
+      },
+      "Index": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string", "example": "vtts-backend" },
+          "status": { "type": "string", "example": "ok" },
+          "endpoints": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "method": { "type": "string" },
+                "path": { "type": "string" },
+                "summary": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

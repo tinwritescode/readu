@@ -1,0 +1,37 @@
+{
+  "migIndex": 1,
+  "data": [
+    {
+      "path": "assets/fonts/Literata-OFL.txt",
+      "sha1": "3efdefb6c449774d71f930dca0fc4001eb56485c"
+    },
+    {
+      "path": "assets/fonts/Literata_400Regular.ttf",
+      "sha1": "50956a689486793abdb51918ab7275a162494c31"
+    },
+    {
+      "path": "assets/fonts/Literata_400Regular_Italic.ttf",
+      "sha1": "e6c1be70f40aec5a037454ba989843d56b30d9e2"
+    },
+    {
+      "path": "assets/fonts/Literata_500Medium.ttf",
+      "sha1": "79742c0e2e732cc4a27dbc9674885e3d0a9cf8ff"
+    },
+    {
+      "path": "assets/fonts/Literata_600SemiBold.ttf",
+      "sha1": "89d51a7bf4db7dba40d39b8691601ae4968201b3"
+    },
+    {
+      "path": "assets/fonts/PublicSans-OFL.txt",
+      "sha1": "57000d5b9ff2d4570f8e17b4499b5a17b19e41d9"
+    },
+    {
+      "path": "assets/fonts/PublicSans_500Medium.ttf",
+      "sha1": "fdada24130ca900e0b6858bfe20d9bdb627536ba"
+    },
+    {
+      "path": "assets/fonts/PublicSans_600SemiBold.ttf",
+      "sha1": "659690336a8d357e706ac202158aa9bf6b39524b"
+    }
+  ]
+}

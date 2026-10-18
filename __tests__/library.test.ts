@@ -1,7 +1,11 @@
-import type { LibraryEntry, Voice } from '../src/domain/types';
-import { DEFAULT_SETTINGS, libraryReducer, recentEntries } from '../src/features/library/library';
+import type { LibraryEntry } from '../src/domain/types';
+import {
+  DEFAULT_SETTINGS,
+  DEFAULT_VOICE_ID,
+  libraryReducer,
+  recentEntries,
+} from '../src/features/library/library';
 import { formatClock, formatMinutesLeft } from '../src/features/reader/estimate';
-import { groupByLanguage, resolveVoice } from '../src/features/voices/voices';
 
 const entry = (id: string, openedAt: number): LibraryEntry => ({
   id,
@@ -25,36 +29,9 @@ test('library keeps positions per document and lists the latest opened first', (
   expect(state.entries.map(e => e.id)).toEqual(['b']);
 });
 
-const voice = (id: string, language: string, quality: Voice['quality'], languageName = language): Voice => ({
-  id,
-  name: id,
-  language,
-  languageName,
-  regionName: language,
-  quality,
-});
-
-const voices = [
-  voice('Samantha', 'en-US', 'default', 'English'),
-  voice('Ava', 'en-US', 'premium', 'English'),
-  voice('Linh', 'vi-VN', 'default', 'Tiếng Việt'),
-  voice('Amélie', 'fr-CA', 'enhanced', 'Français'),
-];
-
-test('picks the saved voice for the language, else its best one', () => {
-  expect(resolveVoice(voices, 'en', {})?.id).toBe('Ava');
-  expect(resolveVoice(voices, 'en', { en: 'Samantha' })?.id).toBe('Samantha');
-  expect(resolveVoice(voices, 'vi', { en: 'Samantha' })?.id).toBe('Linh');
-  expect(resolveVoice(voices, 'de', {})?.id).toBe('Ava');
-  expect(resolveVoice(voices, 'en', { en: 'uninstalled' })?.id).toBe('Ava');
-});
-
-test('groups voices by language, best quality first', () => {
-  expect(groupByLanguage(voices).map(g => [g.label, g.voices.map(v => v.id)])).toEqual([
-    ['English', ['Ava', 'Samantha']],
-    ['Français', ['Amélie']],
-    ['Tiếng Việt', ['Linh']],
-  ]);
+test('new installs read in the default Vbee voice', () => {
+  expect(DEFAULT_SETTINGS.voiceId).toBe(DEFAULT_VOICE_ID);
+  expect(DEFAULT_VOICE_ID).toBe('s_hochiminh_female_hanhanvani_children_vc');
 });
 
 test('formats time estimates', () => {

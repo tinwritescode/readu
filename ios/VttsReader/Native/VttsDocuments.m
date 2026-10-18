@@ -117,6 +117,16 @@ RCT_EXPORT_METHOD(saveLibrary:(NSString *)json
   resolve(nil);
 }
 
+- (NSDictionary *)constantsToExport
+{
+  return @{@"coversDirectory" : VttsReadium.coversDirectory.absoluteString};
+}
+
+RCT_EXPORT_METHOD(deleteCover:(NSString *)name)
+{
+  [NSFileManager.defaultManager removeItemAtURL:[VttsReadium.coversDirectory URLByAppendingPathComponent:name.lastPathComponent] error:nil];
+}
+
 - (void)documentPicker:(UIDocumentPickerViewController *)controller didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls
 {
   NSURL *url = urls.firstObject;
