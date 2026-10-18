@@ -1,0 +1,117 @@
+/* Readu's look, borrowed from the cap-your-cash design system (DESIGN.md there): charcoal surfaces, hairline
+   borders, no drop shadows, pill buttons with an inset bevel, flat fields, round chips and 28px cards.
+   Everything is scoped under .readu-ui so it never touches YouTube's own styles. */
+.readu-ui {
+  --background: oklch(0.17 0.006 260);
+  --foreground: oklch(0.97 0.004 260);
+  --surface: oklch(0.22 0.008 260);
+  --surface-2: oklch(0.27 0.01 260);
+  --muted-foreground: oklch(0.68 0.012 260);
+  /* Readu's teal takes the place of cap-your-cash's accent, with dark text for contrast. */
+  --primary: oklch(0.79 0.13 182);
+  --primary-foreground: oklch(0.2 0.04 182);
+  --accent: oklch(0.3 0.04 182);
+  --accent-foreground: oklch(0.9 0.06 182);
+  --destructive: oklch(0.7 0.18 25);
+  --border: oklch(1 0 0 / 8%);
+  --ring: var(--primary);
+  --glass: color-mix(in oklab, var(--surface-2) 72%, transparent);
+  color: var(--foreground);
+  font-family: "Plus Jakarta Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-feature-settings: "tnum";
+  font-size: 14px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+}
+.readu-ui *, .readu-ui *::before, .readu-ui *::after { box-sizing: border-box; }
+.readu-ui button { font: inherit; color: inherit; }
+
+/* Pill button with the inset bevel; pressed state shrinks a little. */
+.rd-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  height: 44px; padding: 0 20px; border: 0; border-radius: 999px; cursor: pointer;
+  font-weight: 600; font-size: 14px; white-space: nowrap;
+  background: linear-gradient(to bottom, var(--primary), color-mix(in oklab, var(--primary), black 14%));
+  color: var(--primary-foreground);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.22), inset 0 -2px 0 rgba(0,0,0,.18);
+  transition: transform .15s, filter .15s, box-shadow .15s;
+}
+.rd-btn:hover { filter: brightness(1.1); }
+.rd-btn:active { transform: scale(.96) translateY(1px); box-shadow: inset 0 1px 0 rgba(255,255,255,.12), inset 0 -1px 0 rgba(0,0,0,.1); }
+.rd-btn:disabled { opacity: .5; pointer-events: none; }
+.rd-btn:focus-visible, .rd-chip:focus-visible, .rd-icon-btn:focus-visible, .rd-switch:focus-visible, .rd-link:focus-visible {
+  outline: 2px solid var(--ring); outline-offset: 2px;
+}
+.rd-btn-outline {
+  background: var(--surface-2); color: var(--foreground); border: 1px solid var(--border);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.06), inset 0 -2px 0 rgba(0,0,0,.08);
+}
+.rd-btn-outline:hover { filter: none; background: var(--accent); color: var(--accent-foreground); }
+.rd-btn-block { width: 100%; }
+
+/* Round icon button. */
+.rd-icon-btn {
+  display: grid; place-items: center; width: 40px; height: 40px; padding: 0; border: 0; border-radius: 999px;
+  background: var(--accent); color: var(--accent-foreground); cursor: pointer;
+}
+.rd-icon-btn.rd-plain { background: transparent; color: var(--muted-foreground); }
+.rd-icon-btn.rd-plain:hover { background: var(--surface-2); color: var(--foreground); }
+
+/* Text button. */
+.rd-link {
+  min-height: 36px; padding: 0 8px; border: 0; background: none; cursor: pointer;
+  color: var(--primary); font-weight: 600; font-size: 14px;
+}
+.rd-link:disabled { color: var(--muted-foreground); cursor: default; font-weight: 500; }
+.rd-link.rd-muted { color: var(--muted-foreground); font-weight: 500; }
+.rd-link.rd-danger { color: var(--destructive); }
+
+/* Flat field: same height, radius and fill for every input. */
+.rd-field {
+  width: 100%; height: 44px; padding: 0 14px; border: 1px solid var(--border); border-radius: 14px;
+  background: var(--surface-2); color: var(--foreground); font: inherit; font-size: 15px; outline: none;
+}
+.rd-field:focus-visible { border-color: var(--ring); }
+select.rd-field {
+  appearance: none; padding-right: 38px; cursor: pointer;
+  background: var(--surface-2) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='%23a3a9b4' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E") no-repeat right 12px center;
+}
+.rd-label { display: flex; flex-direction: column; gap: 6px; font-size: 14px; color: var(--muted-foreground); }
+
+/* Card: 28px radius, surface fill, no border, no shadow. */
+.rd-card { border-radius: 28px; background: var(--surface); padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+.rd-tile { border-radius: 20px; background: var(--surface-2); padding: 12px; }
+
+/* Chips in a row that scrolls sideways. */
+.rd-chips { display: flex; gap: 8px; overflow-x: auto; margin: 0 -16px; padding: 0 16px 4px; scrollbar-width: none; }
+.rd-chips::-webkit-scrollbar { display: none; }
+.rd-chip {
+  flex-shrink: 0; min-height: 40px; padding: 0 16px; border: 0; border-radius: 999px; cursor: pointer;
+  background: var(--surface-2); color: var(--muted-foreground); font-size: 14px;
+}
+.rd-chip.rd-active { background: var(--primary); color: var(--primary-foreground); font-weight: 600; }
+
+/* Small switch, as in cap-your-cash. */
+.rd-switch {
+  position: relative; flex-shrink: 0; width: 40px; height: 24px; padding: 0; border: 2px solid transparent;
+  border-radius: 999px; background: oklch(1 0 0 / 14%); cursor: pointer; transition: background .15s;
+}
+.rd-switch::after {
+  content: ""; position: absolute; top: 0; left: 0; width: 20px; height: 20px; border-radius: 50%;
+  background: var(--background); transition: transform .15s;
+}
+.rd-switch[aria-checked="true"] { background: var(--primary); }
+.rd-switch[aria-checked="true"]::after { transform: translateX(16px); }
+
+/* Progress track. */
+.rd-bar { height: 6px; border-radius: 999px; background: var(--surface-2); overflow: hidden; }
+.rd-bar > div { height: 100%; border-radius: 999px; background: var(--primary); transition: width .2s; }
+
+.rd-muted { color: var(--muted-foreground); }
+.rd-small { font-size: 12px; }
+.rd-error { margin: 0; color: var(--destructive); font-size: 14px; }
+.rd-error:empty { display: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .readu-ui *, .readu-ui *::before, .readu-ui *::after { transition-duration: .01ms !important; }
+}

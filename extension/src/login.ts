@@ -91,17 +91,17 @@ export class LoginForm {
   }
 
   private emailStep(prefill: string, error = '') {
-    const email = h('input', { type: 'email', class: 'rl-input', value: prefill, required: true, autocomplete: 'email', placeholder: 'ban@email.com' });
-    const err = h('p', { class: 'rl-error', role: 'alert' }, error);
-    const submit = h('button', { type: 'submit', class: 'rl-primary' }, 'Gửi mã đăng nhập');
-    const form = h('form', { class: 'rl-form' }, h('label', { class: 'rl-label' }, h('span', {}, 'Email'), email), err, submit);
+    const email = h('input', { type: 'email', class: 'rd-field', value: prefill, required: true, autocomplete: 'email', placeholder: 'ban@email.com' });
+    const err = h('p', { class: 'rd-error', role: 'alert' }, error);
+    const submit = h('button', { type: 'submit', class: 'rd-btn rd-btn-block' }, 'Gửi mã');
+    const form = h('form', { class: 'rl-form' }, h('label', { class: 'rd-label' }, h('span', {}, 'Email'), email), err, submit);
     form.addEventListener('submit', e => {
       e.preventDefault();
       const value = email.value.trim();
       // Move on at once; the service worker records the step and any failure even if this popup closes.
       this.codeStep({ email: value, sentAt: Date.now() }, true);
     });
-    this.render(...this.heading('email', 'Lồng tiếng Việt cho mọi video', 'Đăng nhập bằng tài khoản readu để dùng chung gói và giọng đọc.'), form, h('p', { class: 'rl-foot' }, 'Mã gồm 6 số, hết hạn sau 10 phút.'));
+    this.render(...this.heading('email', 'Đăng nhập', 'Dùng tài khoản readu để nghe video YouTube bằng tiếng Việt.'), form, h('p', { class: 'rl-foot' }, 'Mã 6 số, dùng được trong 10 phút.'));
     email.focus();
   }
 
@@ -113,7 +113,7 @@ export class LoginForm {
   }
 
   private codeStep(pending: PendingLogin, sendNow = false) {
-    const back = h('button', { type: 'button', class: 'rl-back', ariaLabel: 'Đổi email' }, backIcon());
+    const back = h('button', { type: 'button', class: 'rd-icon-btn rd-plain rl-back', ariaLabel: 'Đổi email' }, backIcon());
     back.addEventListener('click', async () => {
       await chrome.storage.local.remove('pendingLogin');
       this.emailStep(pending.email);
@@ -131,10 +131,10 @@ export class LoginForm {
         ariaLabel: `Số thứ ${i + 1}`,
       }),
     );
-    const err = h('p', { class: 'rl-error', role: 'alert' });
-    const submit = h('button', { type: 'submit', class: 'rl-primary' }, 'Xác nhận');
-    const resend = h('button', { type: 'button', class: 'rl-link' });
-    const changeEmail = h('button', { type: 'button', class: 'rl-link rl-muted' }, 'Đổi email');
+    const err = h('p', { class: 'rd-error', role: 'alert' });
+    const submit = h('button', { type: 'submit', class: 'rd-btn rd-btn-block' }, 'Xác nhận');
+    const resend = h('button', { type: 'button', class: 'rd-link' });
+    const changeEmail = h('button', { type: 'button', class: 'rd-link rd-muted' }, 'Đổi email');
     changeEmail.addEventListener('click', () => back.click());
 
     const code = () => boxes.map(b => b.value).join('');

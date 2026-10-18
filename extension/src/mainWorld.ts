@@ -9,7 +9,8 @@ interface Player extends HTMLElement {
 }
 
 interface PlayerResponse {
-  videoDetails?: { videoId?: string; title?: string; shortDescription?: string };
+  videoDetails?: { videoId?: string; title?: string; shortDescription?: string; lengthSeconds?: string };
+  microformat?: { playerMicroformatRenderer?: { category?: string } };
   captions?: { playerCaptionsTracklistRenderer?: { captionTracks?: CaptionTrack[] } };
 }
 
@@ -83,7 +84,9 @@ async function captions(): Promise<CaptionsResult> {
     if (!events) return { ok: false, videoId, reason: 'fetch-failed' };
     const title = pr.videoDetails?.title ?? '';
     const description = (pr.videoDetails?.shortDescription ?? '').slice(0, 1000);
-    return { ok: true, videoId, title, description, events: events as never, language: track.languageCode, auto };
+    const category = pr.microformat?.playerMicroformatRenderer?.category ?? '';
+    const durationSec = Number(pr.videoDetails?.lengthSeconds ?? 0);
+    return { ok: true, videoId, title, description, category, durationSec, events: events as never, language: track.languageCode, auto };
   } catch {
     return { ok: false, videoId, reason: 'fetch-failed' };
   }

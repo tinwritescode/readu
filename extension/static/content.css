@@ -1,102 +1,56 @@
-/* Readu Dub on YouTube. Every class starts with rdub- so nothing clashes with the player's own styles. */
-.rdub-button, .rdub-panel, .rdub-overlay {
-  --rdub-bg: #0f1514;
-  --rdub-surface: #18211f;
-  --rdub-line: #2a3633;
-  --rdub-text: #e8f1ef;
-  --rdub-muted: #93a6a1;
-  --rdub-accent: #2dd4bf;
-  --rdub-accent-ink: #04201c;
-  font-family: "Be Vietnam Pro", system-ui, -apple-system, "Segoe UI", sans-serif;
-}
+/* Readu Dub on YouTube. Looks come from ui.css; this file only places things in the player. Every class
+   starts with rdub- or rd- so nothing clashes with the player's own styles. */
 
-.rdub-button {
-  display: inline-flex; align-items: center; gap: 6px;
-  height: 28px; margin: 10px 8px 0; padding: 0 12px;
-  border: 1px solid rgba(255,255,255,.35); border-radius: 999px;
-  background: rgba(0,0,0,.35); color: #fff;
-  font-size: 13px; font-weight: 600; line-height: 1; cursor: pointer; vertical-align: top;
+/* The control-bar button takes the player's own .ytp-button box, so its height and vertical centre match the
+   native controls; the pill inside is centred in that box. */
+.ytp-button.rdub-button {
+  display: inline-flex !important; align-items: center; justify-content: center;
+  width: auto !important; height: 100%; padding: 0 6px !important; vertical-align: top;
+  opacity: 1; color: #fff; font-size: 12px;
 }
-.rdub-button:hover { border-color: var(--rdub-accent); }
-.rdub-button.rdub-on { background: var(--rdub-accent); border-color: var(--rdub-accent); color: var(--rdub-accent-ink); }
-.rdub-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; opacity: .6; }
-.rdub-button.rdub-on .rdub-dot { opacity: 1; }
+.rdub-pill {
+  display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 11px;
+  border-radius: 999px; background: oklch(1 0 0 / 14%);
+  font-weight: 700; font-size: 12px; line-height: 1; letter-spacing: .01em; white-space: nowrap;
+  transition: background .15s, color .15s;
+}
+.ytp-button.rdub-button:hover .rdub-pill { background: oklch(1 0 0 / 22%); }
+.rdub-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; opacity: .55; }
+.ytp-button.rdub-button.rdub-on .rdub-pill { background: var(--primary); color: var(--primary-foreground); }
+.ytp-button.rdub-button.rdub-on .rdub-dot { opacity: 1; }
+.ytp-button.rdub-button.rdub-music .rdub-pill { opacity: .55; }
 
+/* Side panel: charcoal sheet with 28px corners, a hairline edge and no shadow. */
 .rdub-panel {
-  display: none; position: absolute; z-index: 70; top: 12px; right: 12px; bottom: 60px;
-  width: 300px; max-width: calc(100% - 24px); overflow-y: auto; box-sizing: border-box;
-  padding: 16px; border: 1px solid var(--rdub-line); border-radius: 14px;
-  background: var(--rdub-bg); color: var(--rdub-text); font-size: 13px; line-height: 1.4;
-  box-shadow: 0 12px 32px rgba(0,0,0,.45);
+  display: none; position: absolute; z-index: 70; top: 12px; right: 12px; bottom: 64px;
+  width: 320px; max-width: calc(100% - 24px); overflow-y: auto; overscroll-behavior: contain;
+  padding: 12px 16px 16px; border: 1px solid var(--border); border-radius: 28px; background: var(--background);
+  scrollbar-width: thin;
 }
 .rdub-panel.rdub-open { display: flex; flex-direction: column; gap: 12px; }
-.rdub-panel button { font: inherit; }
-.rdub-head { display: flex; align-items: center; gap: 10px; }
-.rdub-title { flex: 1; font-size: 15px; font-weight: 700; }
-.rdub-switch {
-  position: relative; width: 40px; height: 22px; border: 0; border-radius: 999px;
-  background: var(--rdub-line); cursor: pointer; padding: 0;
-}
-.rdub-switch::after {
-  content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px;
-  border-radius: 50%; background: #fff; transition: left .15s;
-}
-.rdub-switch.rdub-on { background: var(--rdub-accent); }
-.rdub-switch.rdub-on::after { left: 21px; }
-.rdub-close {
-  width: 28px; height: 28px; border: 0; border-radius: 8px; background: transparent;
-  color: var(--rdub-muted); font-size: 20px !important; cursor: pointer;
-}
-.rdub-close:hover { background: var(--rdub-surface); color: var(--rdub-text); }
-
-.rdub-lang { display: flex; align-items: center; gap: 6px; }
-.rdub-chip { padding: 2px 8px; border-radius: 6px; background: var(--rdub-surface); font-weight: 600; font-size: 12px; }
-.rdub-chip-accent { background: var(--rdub-accent); color: var(--rdub-accent-ink); }
-.rdub-arrow { color: var(--rdub-muted); }
-.rdub-note { margin-left: auto; color: var(--rdub-muted); font-size: 12px; }
-.rdub-message { padding: 10px 12px; border-radius: 10px; background: var(--rdub-surface); border: 1px solid var(--rdub-line); }
-.rdub-label { color: var(--rdub-muted); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
-.rdub-muted { color: var(--rdub-muted); }
-
-.rdub-voices { display: flex; flex-direction: column; gap: 4px; max-height: 180px; overflow-y: auto; }
-.rdub-voice {
-  display: flex; justify-content: space-between; align-items: center; min-height: 34px; padding: 0 10px;
-  border: 1px solid transparent; border-radius: 8px; background: var(--rdub-surface); color: var(--rdub-text);
-  cursor: pointer; text-align: left;
-}
-.rdub-voice:hover { border-color: var(--rdub-line); }
-.rdub-voice.rdub-selected { border-color: var(--rdub-accent); }
-.rdub-voice-gender { color: var(--rdub-muted); font-size: 12px; }
-
-.rdub-slider { display: flex; flex-direction: column; gap: 4px; }
-.rdub-slider-head { display: flex; justify-content: space-between; }
-.rdub-slider-value { color: var(--rdub-muted); font-variant-numeric: tabular-nums; }
-.rdub-slider input { width: 100%; accent-color: var(--rdub-accent); }
-
-.rdub-progress { display: flex; flex-direction: column; gap: 6px; }
+.rdub-head { display: flex; align-items: center; gap: 8px; margin-right: -8px; }
+.rdub-title { flex: 1; font-size: 17px; font-weight: 700; }
+.rdub-sub { margin-top: -8px; }
+.rdub-label { font-size: 14px; color: var(--muted-foreground); }
+.rdub-note { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 6px 6px 12px; }
+.rdub-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.rdub-count { font-weight: 700; }
+.rdub-slider { display: flex; flex-direction: column; gap: 6px; }
+.rdub-slider input { width: 100%; margin: 0; accent-color: var(--primary); }
 .rdub-progress:empty { display: none; }
-.rdub-progress-text { font-variant-numeric: tabular-nums; }
-.rdub-bar { height: 6px; border-radius: 999px; background: var(--rdub-surface); overflow: hidden; }
-.rdub-bar-fill { height: 100%; background: var(--rdub-accent); transition: width .3s; }
 
+/* The sign-in form inside the panel. */
+.rdub-login-head { display: flex; flex-direction: column; gap: 4px; }
+.rdub-login-title { font-size: 17px; font-weight: 700; }
+
+/* Status over the video: a small glass pill that never blocks the player. */
 .rdub-overlay {
   display: none; position: absolute; z-index: 69; top: 16px; left: 50%; transform: translateX(-50%);
-  max-width: calc(100% - 32px); padding: 10px 16px; border-radius: 12px;
-  background: rgba(15,21,20,.92); border: 1px solid var(--rdub-line); color: var(--rdub-text);
+  max-width: calc(100% - 32px); padding: 10px 18px; border-radius: 999px;
+  background: var(--glass); backdrop-filter: blur(18px) saturate(1.4); border: 1px solid var(--border);
   text-align: center; pointer-events: none;
 }
 .rdub-overlay.rdub-show { display: block; }
 .rdub-overlay-title { font-size: 14px; font-weight: 700; }
-.rdub-overlay-sub { color: var(--rdub-muted); font-size: 12px; margin-top: 2px; }
+.rdub-overlay-sub { color: var(--muted-foreground); font-size: 12px; }
 .rdub-overlay-sub:empty { display: none; }
-
-/* The sign-in form inside the panel, on the panel's dark colors. */
-.rdub-panel .rl {
-  --rl-text: var(--rdub-text); --rl-muted: var(--rdub-muted); --rl-line: var(--rdub-line); --rl-field: var(--rdub-surface);
-  --rl-accent: var(--rdub-accent); --rl-accent-ink: var(--rdub-accent-ink); --rl-danger: #f87171;
-  gap: 14px; font-family: inherit;
-}
-.rdub-login-head { display: flex; flex-direction: column; gap: 4px; }
-.rdub-login-title { font-size: 17px; font-weight: 700; }
-.rdub-panel .rl-digit { height: 44px; font-size: 18px; }
-.rdub-panel .rl-primary, .rdub-panel .rl-input { height: 42px; font-size: 14px; }

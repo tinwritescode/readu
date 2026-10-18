@@ -5,7 +5,18 @@ export const TO_PAGE = 'readu-dub:to-page';
 export const TO_CONTENT = 'readu-dub:to-content';
 
 export type CaptionsResult =
-  | { ok: true; videoId: string; title: string; description: string; events: Json3Event[]; language: string; auto: boolean }
+  | {
+      ok: true;
+      videoId: string;
+      title: string;
+      description: string;
+      /** YouTube's category, e.g. "Music". */
+      category: string;
+      durationSec: number;
+      events: Json3Event[];
+      language: string;
+      auto: boolean;
+    }
   | { ok: false; videoId: string; reason: 'no-captions' | 'fetch-failed' | 'no-player' };
 
 let nextId = 1;

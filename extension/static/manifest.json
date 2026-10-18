@@ -17,7 +17,7 @@
     {
       "matches": ["https://www.youtube.com/*"],
       "js": ["content.js"],
-      "css": ["login.css", "content.css"],
+      "css": ["ui.css", "login.css", "content.css"],
       "run_at": "document_idle"
     }
   ]

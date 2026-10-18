@@ -3,6 +3,7 @@
 import { requestCaptions } from './bridge';
 import { toSegments } from './captions';
 import { LoginForm } from './login';
+import { isMusicVideo } from './music';
 import { LATE_START_MS, playbackRate, segmentAt, slotMs } from './timing';
 import { loadSettings, saveSettings, send, type DubStatus, type Segment, type Settings, type Voice } from './types';
 
@@ -323,10 +324,10 @@ class Dub {
 
 /** The button, panel and overlay on the watch page, and the dub they control. */
 class DubUI {
-  private button = el('button', 'rdub-button');
-  private panel = el('div', 'rdub-panel');
-  private overlay = el('div', 'rdub-overlay');
-  private progress = el('div', 'rdub-progress');
+  private button = el('button', 'ytp-button rdub-button readu-ui');
+  private panel = el('div', 'rdub-panel readu-ui');
+  private overlay = el('div', 'rdub-overlay readu-ui');
+  private progress = el('section', 'rd-card rdub-progress');
   private login = new LoginForm((_step, title, text) => {
     const head = el('div', 'rdub-login-head');
     head.append(el('div', 'rdub-login-title', title));
@@ -341,13 +342,20 @@ class DubUI {
   private captionsNote = '';
   private signedIn = false;
   private videoId = '';
+  /** This video looked like music, so dubbing was turned off. */
+  private isMusic = false;
+  /** The viewer chose to dub this music video anyway. */
+  private musicOverride = false;
 
   async init() {
     this.settings = await loadSettings();
     this.signedIn = !!(await chrome.storage.local.get('token')).token;
     this.button.type = 'button';
-    this.button.title = 'Lồng tiếng Việt (Readu Dub)';
-    this.button.innerHTML = '<span class="rdub-dot"></span><span>Dub VI</span>';
+    this.button.title = 'Lồng tiếng Việt';
+    this.button.setAttribute('aria-label', 'Lồng tiếng Việt');
+    const pill = el('span', 'rdub-pill');
+    pill.append(el('span', 'rdub-dot'), el('span', '', 'Dub VI'));
+    this.button.append(pill);
     this.button.addEventListener('click', e => {
       e.stopPropagation();
       this.panel.classList.toggle('rdub-open');
@@ -367,7 +375,11 @@ class DubUI {
       if (changes.settings) {
         const prev = this.settings;
         this.settings = { ...this.settings, ...(changes.settings.newValue as Settings) };
-        if (this.enabled && prev.voice !== this.settings.voice) void this.restart();
+        if (this.enabled && prev.voice !== this.settings.voice) this.restart();
+        // On or off chosen in the popup applies to this video too.
+        if (prev.autoDub !== this.settings.autoDub && this.settings.autoDub !== this.enabled && this.videoId) {
+          this.setEnabled(this.settings.autoDub);
+        }
         this.render();
       }
     });
@@ -383,8 +395,11 @@ class DubUI {
     this.setEnabled(false);
     this.message = '';
     this.captionsNote = '';
+    this.isMusic = false;
+    this.musicOverride = false;
     this.mount();
     this.render();
+    // The last on/off choice carries over to the next video.
     if (id && this.settings.autoDub && this.signedIn) this.setEnabled(true);
   }
 
@@ -413,7 +428,14 @@ class DubUI {
     this.render();
   }
 
-  private async restart() {
+  /** The viewer turned dubbing on or off: remember it for the next videos. */
+  private choose(on: boolean) {
+    if (on && this.isMusic) this.musicOverride = true;
+    this.setEnabled(on);
+    void saveSettings({ autoDub: on });
+  }
+
+  private restart() {
     this.setEnabled(false);
     this.setEnabled(true);
   }
@@ -434,13 +456,18 @@ class DubUI {
     if (!result.ok || segments.length === 0) {
       this.enabled = false;
       this.message =
-        result.ok || result.reason === 'no-captions'
-          ? 'Chưa hỗ trợ video không có phụ đề.'
-          : 'Không đọc được phụ đề của video này.';
+        result.ok || result.reason === 'no-captions' ? 'Video này chưa có phụ đề nên chưa lồng tiếng được.' : 'Không đọc được phụ đề của video này.';
+      return this.render();
+    }
+    // Songs are left alone without a fuss: dubbing stays off and the panel says why in one line.
+    if (!this.musicOverride && isMusicVideo({ category: result.category, durationSec: result.durationSec, events: result.events, segments })) {
+      this.enabled = false;
+      this.isMusic = true;
+      this.message = '';
       return this.render();
     }
     this.message = '';
-    this.captionsNote = result.auto ? 'Phụ đề tự động' : result.language === 'en' || result.language.startsWith('en-') ? 'Phụ đề tiếng Anh' : `Phụ đề ${result.language} → EN`;
+    this.captionsNote = result.auto ? 'Phụ đề tự động' : result.language === 'en' || result.language.startsWith('en-') ? 'Phụ đề tiếng Anh' : `Phụ đề ${result.language}`;
     this.dub = new Dub(video, { id: result.videoId, title: result.title, description: result.description }, segments, this.settings, () => this.renderStatus());
     this.render();
     await this.dub.start();
@@ -448,6 +475,8 @@ class DubUI {
 
   private render() {
     this.button.classList.toggle('rdub-on', this.enabled);
+    this.button.classList.toggle('rdub-music', this.isMusic && !this.enabled);
+    this.button.title = this.isMusic && !this.enabled ? 'Video nhạc: không lồng tiếng' : 'Lồng tiếng Việt';
     this.panel.replaceChildren(...this.panelContent());
     this.renderStatus();
   }
@@ -455,7 +484,7 @@ class DubUI {
   /** Updates only the overlay and progress, so a poll does not rebuild the panel under the viewer's cursor. */
   private renderStatus() {
     const overlay = this.enabled ? (this.dub?.overlay ?? 'none') : 'none';
-    this.overlay.className = 'rdub-overlay' + (overlay !== 'none' ? ' rdub-show' : '');
+    this.overlay.classList.toggle('rdub-show', overlay !== 'none');
     if (overlay !== 'none') {
       const [title, sub] = OVERLAY_TEXT[overlay];
       this.overlay.replaceChildren(
@@ -465,31 +494,33 @@ class DubUI {
     }
     if (!this.dub) return this.progress.replaceChildren();
     const { done, total } = this.dub.progress;
-    const bar = el('div', 'rdub-bar');
-    const fill = el('div', 'rdub-bar-fill');
+    const bar = el('div', 'rd-bar');
+    const fill = el('div');
     fill.style.width = `${total ? (100 * done) / total : 0}%`;
     bar.append(fill);
-    this.progress.replaceChildren(el('div', 'rdub-progress-text', `Đã lồng tiếng ${done}/${total} câu`), bar);
+    const row = el('div', 'rdub-row');
+    row.append(el('span', 'rd-muted', 'Đã lồng tiếng'), el('span', 'rdub-count', `${done}/${total} câu`));
+    this.progress.replaceChildren(row, bar);
   }
 
   private panelContent(): HTMLElement[] {
     const head = el('div', 'rdub-head');
-    head.append(el('div', 'rdub-title', 'Readu Dub'));
-    const toggle = el('button', 'rdub-switch' + (this.enabled ? ' rdub-on' : ''));
-    toggle.type = 'button';
-    toggle.setAttribute('role', 'switch');
-    toggle.setAttribute('aria-checked', String(this.enabled));
-    toggle.setAttribute('aria-label', 'Bật lồng tiếng');
-    toggle.addEventListener('click', () => this.setEnabled(!this.enabled));
-    const close = el('button', 'rdub-close', '×');
+    head.append(el('div', 'rdub-title', 'Lồng tiếng'));
+    if (this.signedIn) {
+      const toggle = el('button', 'rd-switch');
+      toggle.type = 'button';
+      toggle.setAttribute('role', 'switch');
+      toggle.setAttribute('aria-checked', String(this.enabled));
+      toggle.setAttribute('aria-label', 'Bật lồng tiếng');
+      toggle.addEventListener('click', () => this.choose(!this.enabled));
+      head.append(toggle);
+    }
+    const close = el('button', 'rd-icon-btn rd-plain');
     close.type = 'button';
     close.setAttribute('aria-label', 'Đóng');
+    close.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>';
     close.addEventListener('click', () => this.panel.classList.remove('rdub-open'));
-    head.append(toggle, close);
-
-    const lang = el('div', 'rdub-lang');
-    lang.append(el('span', 'rdub-chip', 'EN'), el('span', 'rdub-arrow', '→'), el('span', 'rdub-chip rdub-chip-accent', 'VI'));
-    if (this.captionsNote) lang.append(el('span', 'rdub-note', this.captionsNote));
+    head.append(close);
 
     if (!this.signedIn) {
       // Signing in here survives switching tabs to read the mail, which the toolbar popup does not.
@@ -498,27 +529,37 @@ class DubUI {
       return [head, this.login.el];
     }
 
-    const out: HTMLElement[] = [head, lang];
-    if (this.message) out.push(el('div', 'rdub-message', this.message));
+    const out: HTMLElement[] = [head];
+    out.push(el('div', 'rd-muted rd-small rdub-sub', ['Tiếng Anh → Tiếng Việt', this.captionsNote].filter(Boolean).join(' · ')));
+    if (this.isMusic && !this.enabled) {
+      const note = el('div', 'rd-tile rdub-note');
+      const anyway = el('button', 'rd-link', 'Vẫn lồng tiếng');
+      anyway.type = 'button';
+      anyway.addEventListener('click', () => this.choose(true));
+      note.append(el('span', 'rd-muted', 'Video nhạc nên không lồng tiếng.'), anyway);
+      out.push(note);
+    } else if (this.message) {
+      out.push(el('div', 'rd-tile rd-muted', this.message));
+    }
 
     out.push(el('div', 'rdub-label', 'Giọng đọc'));
-    const list = el('div', 'rdub-voices');
-    if (!this.voices.length) list.append(el('div', 'rdub-muted', this.signedIn ? 'Đang tải giọng đọc…' : 'Đăng nhập để chọn giọng'));
+    const list = el('div', 'rd-chips');
+    if (!this.voices.length) list.append(el('span', 'rd-muted rd-small', 'Đang tải giọng đọc…'));
     for (const v of this.voices) {
-      const b = el('button', 'rdub-voice' + (v.code === this.settings.voice ? ' rdub-selected' : ''));
+      const b = el('button', 'rd-chip' + (v.code === this.settings.voice ? ' rd-active' : ''), v.name);
       b.type = 'button';
-      b.append(el('span', 'rdub-voice-name', v.name), el('span', 'rdub-voice-gender', v.gender === 'male' ? 'Nam' : 'Nữ'));
+      b.title = v.gender === 'male' ? 'Giọng nam' : 'Giọng nữ';
       b.addEventListener('click', () => void saveSettings({ voice: v.code }));
       list.append(b);
     }
     out.push(list);
 
-    out.push(
-      this.slider('Âm lượng gốc', this.settings.originalVolume, v => this.setVolumes({ originalVolume: v })),
-      this.slider('Âm lượng lồng tiếng', this.settings.dubVolume, v => this.setVolumes({ dubVolume: v })),
+    const volumes = el('section', 'rd-card');
+    volumes.append(
+      this.slider('Âm gốc', this.settings.originalVolume, v => this.setVolumes({ originalVolume: v })),
+      this.slider('Giọng Việt', this.settings.dubVolume, v => this.setVolumes({ dubVolume: v })),
     );
-
-    out.push(this.progress);
+    out.push(volumes, this.progress);
     return out;
   }
 
@@ -530,8 +571,8 @@ class DubUI {
 
   private slider(label: string, value: number, onInput: (v: number) => void): HTMLElement {
     const row = el('label', 'rdub-slider');
-    const text = el('div', 'rdub-slider-head');
-    const val = el('span', 'rdub-slider-value', `${Math.round(value * 100)}%`);
+    const text = el('div', 'rdub-row');
+    const val = el('span', 'rd-muted', `${Math.round(value * 100)}%`);
     text.append(el('span', '', label), val);
     const input = el('input');
     input.type = 'range';
