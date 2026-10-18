@@ -2,9 +2,10 @@
 // onnxruntime-web runs the model on the GPU through WebGPU, or on every CPU core through WebAssembly.
 // Runs in the offscreen document, which may use threads and WebGPU and lives as long as the extension needs it.
 import * as ort from 'onnxruntime-web/webgpu';
-import initSeaG2p, { SeaG2p } from '../../../vendor/sea-g2p/sea_g2p_rs.js';
+import type { SeaG2p } from '../../../vendor/sea-g2p/sea_g2p_rs.js';
 import { mergeAudio, SAMPLE_RATE, toModelInputs } from '../../domain/kokoroText';
-import { CONFIG_URL, DICT_URL, MODEL_URL, read, voicepackFloats, voicepackUrl } from './kokoroAssets';
+import { CONFIG_URL, DICT_URL, KOKORO, MODEL_URL, voicepackFloats, voicepackUrl } from './kokoroAssets';
+import { seaG2p, setUpOrt } from './runtime';
 
 export type Backend = 'webgpu' | 'wasm';
 
@@ -20,10 +21,8 @@ export class KokoroEngine {
 
   /** Loads the model from Cache Storage; it must be installed. WebGPU is tried first. */
   static async load(): Promise<KokoroEngine> {
-    ort.env.wasm.wasmPaths = chrome.runtime.getURL('ort/');
-    ort.env.wasm.numThreads = self.crossOriginIsolated ? navigator.hardwareConcurrency : 1;
-    const [model, config, dict] = await Promise.all([read(MODEL_URL), read(CONFIG_URL), read(DICT_URL), initSeaG2p({ module_or_path: chrome.runtime.getURL('sea_g2p_rs_bg.wasm') })]);
-    const g2p = new SeaG2p(new Uint8Array(dict));
+    setUpOrt();
+    const [model, config, g2p] = await Promise.all([KOKORO.read(MODEL_URL), KOKORO.read(CONFIG_URL), seaG2p(() => KOKORO.read(DICT_URL))]);
     const vocab = (JSON.parse(new TextDecoder().decode(config)) as { vocab: Record<string, number> }).vocab;
     const bytes = new Uint8Array(model);
     const failures: string[] = [];
@@ -42,7 +41,7 @@ export class KokoroEngine {
   private async voicepack(voice: string): Promise<Float32Array> {
     let pack = this.voicepacks.get(voice);
     if (!pack) {
-      pack = voicepackFloats(await read(voicepackUrl(voice)));
+      pack = voicepackFloats(await KOKORO.read(voicepackUrl(voice)));
       this.voicepacks.set(voice, pack);
     }
     return pack;

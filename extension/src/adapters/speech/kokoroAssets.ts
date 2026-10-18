@@ -1,8 +1,7 @@
-import { storedEntries } from '../archive/storedZip';
-import { AssetSet, type Asset } from './assetCache';
-
 // The files Kokoro needs to read on this computer, downloaded once into Cache Storage. They are the same files
 // the Readu app downloads onto phones (src/adapters/speech/kokoro in the app).
+import { storedEntries } from '../archive/storedZip';
+import { AssetSet, type Asset } from './assetCache';
 
 const MODEL_REPO = 'https://huggingface.co/contextboxai/Kokoro-Vietnamese/resolve/9f210d622209fcc216fe2ac6159fed2ff381cb8a';
 /** Shared by every voice; each voicepack is fetched the first time its voice is used. */
@@ -17,13 +16,7 @@ export const CONFIG_URL = CORE[1].url;
 export const DICT_URL = CORE[2].url;
 export const voicepackUrl = (voice: string) => `${MODEL_REPO}/voicepacks/${voice}.pt`;
 
-/** Bytes downloaded before reading on this computer can start. */
-export const CORE_BYTES = CORE.reduce((n, a) => n + a.bytes, 0);
-
-const KOKORO = new AssetSet('readu-kokoro-v1', CORE);
-export const isInstalled = () => KOKORO.isInstalled();
-export const install = (onProgress: (done: number, total: number) => void) => KOKORO.install(onProgress);
-export const read = (url: string) => KOKORO.read(url);
+export const KOKORO = new AssetSet('readu-kokoro-v1', CORE);
 
 /**
  * A voicepack's style rows as floats. A .pt file is a zip archive; torch stores the tensor uncompressed in the

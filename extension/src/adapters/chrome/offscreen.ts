@@ -12,7 +12,7 @@ async function ensureDocument() {
     .createDocument({
       url: 'offscreen.html',
       reasons: [chrome.offscreen.Reason.WORKERS],
-      justification: 'Runs the Kokoro speech model with WebAssembly and WebGPU to read Vietnamese on this computer.',
+      justification: 'Runs the Kokoro and VieNeu speech models with WebAssembly and WebGPU to read Vietnamese on this computer.',
     })
     .finally(() => (creating = null));
   await creating;

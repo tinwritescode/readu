@@ -2,7 +2,8 @@
 import { send } from '../adapters/chrome/messages';
 import { loadSettings, saveSettings } from '../adapters/chrome/settings';
 import { planName } from '../domain/plans';
-import type { Account } from '../domain/types';
+import type { Account, Voice } from '../domain/types';
+import { VIENEU_VOICES } from '../domain/voices';
 import { h } from './dom';
 import { LoginForm } from './loginForm';
 
@@ -50,9 +51,11 @@ export async function showAccount(app: HTMLElement, account: Account) {
     void saveSettings({ autoDub: on });
   });
   const voice = h('select', { class: 'rd-field' });
-  for (const v of voices.ok ? voices.data : []) {
-    voice.append(h('option', { value: v.code, selected: v.code === settings.voice }, `${v.name} · ${v.gender === 'male' ? 'Nam' : 'Nữ'}`));
-  }
+  const option = (v: Voice) => h('option', { value: v.code, selected: v.code === settings.voice }, `${v.name} · ${v.gender === 'male' ? 'Nam' : 'Nữ'}`);
+  voice.append(
+    h('optgroup', { label: 'Kokoro' }, ...(voices.ok ? voices.data : []).map(option)),
+    h('optgroup', { label: 'VieNeu · chỉ đọc trên máy này' }, ...VIENEU_VOICES.map(option)),
+  );
   voice.addEventListener('change', () => void saveSettings({ voice: voice.value }));
   const prefs = h(
     'section',

@@ -10,7 +10,12 @@ export interface Voice {
   code: string;
   name: string;
   gender: string;
+  /** Which model reads it; Kokoro when absent (the server's list). */
+  model?: LocalModel;
 }
+
+/** The speech models that can read on this computer. */
+export type LocalModel = 'kokoro' | 'vieneu';
 
 /** What the backend reports about a dub while it is being made. */
 export interface DubStatus {
@@ -70,6 +75,7 @@ export interface LocalEngine {
 
 /** Progress of downloading the voice, kept in chrome.storage so every tab and the popup can show it. */
 export interface InstallProgress {
+  model: LocalModel;
   done: number;
   total: number;
   error?: string;

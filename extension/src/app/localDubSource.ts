@@ -1,10 +1,11 @@
-// The dub made on this computer: Chrome's translator turns each English sentence into Vietnamese and Kokoro
-// reads it in the offscreen document. Nothing goes to the Readu server, so it needs no account and no quota.
+// The dub made on this computer: Chrome's translator turns each English sentence into Vietnamese and Kokoro or
+// VieNeu reads it in the offscreen document. Nothing goes to the Readu server, so it needs no account and no quota.
 import { base64ToBuffer } from '../adapters/chrome/base64';
 import { send, type Reply } from '../adapters/chrome/messages';
 import { englishToVietnamese, TranslatorError } from '../adapters/translate/chromeTranslator';
 import { slotMs } from '../domain/timing';
 import type { Segment } from '../domain/types';
+import { modelOf } from '../domain/voices';
 import type { DubProgress, DubSource } from './dubSource';
 
 /** Audio is made this far ahead of the viewer (video time), like the server's window. */
@@ -37,7 +38,7 @@ export class LocalDubSource implements DubSource {
   async start(position: number, rate: number): Promise<Reply<DubProgress>> {
     this.position = position;
     this.rate = rate;
-    const engine = await send({ type: 'localEngine' });
+    const engine = await send({ type: 'localEngine', model: modelOf(this.voice) });
     if (!engine.ok) return engine;
     if (!engine.data.installed) return { ok: false, status: 0, error: 'Chưa tải giọng đọc về máy này.' };
     void this.work();

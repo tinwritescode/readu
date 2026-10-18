@@ -5,6 +5,7 @@ import type { Request } from '../adapters/chrome/messages';
 import { toOffscreen } from '../adapters/chrome/offscreen';
 import { loginErrorText, type PendingLogin } from '../domain/login';
 import type { Account, LocalEngine } from '../domain/types';
+import { modelOf } from '../domain/voices';
 
 export async function handleRequest(req: Request): Promise<unknown> {
   switch (req.type) {
@@ -68,12 +69,13 @@ export async function handleRequest(req: Request): Promise<unknown> {
     case 'localEngine': {
       // The offscreen document forgets the speed it measured when it closes; the last measurement is kept here.
       const engine = (await toOffscreen(req)) as LocalEngine;
-      const { kokoroBench } = (await chrome.storage.local.get('kokoroBench')) as { kokoroBench?: LocalEngine };
-      return { ...engine, backend: engine.backend ?? kokoroBench?.backend, realtime: engine.realtime ?? kokoroBench?.realtime };
+      const key = `${req.model}Bench`;
+      const bench = ((await chrome.storage.local.get(key)) as Record<string, LocalEngine | undefined>)[key];
+      return { ...engine, backend: engine.backend ?? bench?.backend, realtime: engine.realtime ?? bench?.realtime };
     }
     case 'localBenchmark': {
       const engine = (await toOffscreen(req)) as LocalEngine;
-      await chrome.storage.local.set({ kokoroBench: engine });
+      await chrome.storage.local.set({ [`${modelOf(req.voice)}Bench`]: engine });
       return engine;
     }
     case 'localInstall':

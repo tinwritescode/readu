@@ -120,6 +120,15 @@ export class VieneuEngine {
     throw new Error(`VieNeu would not load (${failures.join('; ')})`);
   }
 
+  /** How many seconds of speech this computer makes per second, on a typical caption sentence. */
+  async benchmark(voice: VieneuVoice): Promise<number> {
+    const text = 'Hôm nay mình sẽ cùng nhau tìm hiểu cách máy chủ này hoạt động, từng bước một.';
+    await this.synthesize(text, voice); // the first run warms caches
+    const t0 = performance.now();
+    const samples = await this.synthesize(text, voice);
+    return samples.length / VIENEU_SAMPLE_RATE / ((performance.now() - t0) / 1000);
+  }
+
   /** Vietnamese text to 48 kHz mono samples, chunk by chunk with the pause each boundary needs. */
   async synthesize(text: string, voice: VieneuVoice): Promise<Float32Array> {
     const { chunks, gaps } = toChunks(text, this.g2p);

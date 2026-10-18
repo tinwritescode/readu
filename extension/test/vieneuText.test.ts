@@ -64,3 +64,16 @@ describe.skipIf(!dict)('chunks and phonemes against the vieneu package (set SEA_
     });
   }
 });
+
+describe('VIENEU_VOICES', () => {
+  it('lists every preset in the vendored voices file', async () => {
+    const { VIENEU_VOICES, modelOf, vieneuPreset } = await import('../src/domain/voices');
+    const file = JSON.parse(readFileSync(new URL('../vendor/vieneu/voices_v3_turbo.json', import.meta.url), 'utf8')) as { presets: Record<string, { gender: string }> };
+    expect(VIENEU_VOICES.map(v => vieneuPreset(v.code)).sort()).toEqual(Object.keys(file.presets).sort());
+    for (const v of VIENEU_VOICES) {
+      expect(modelOf(v.code)).toBe('vieneu');
+      expect(v.gender).toBe(file.presets[vieneuPreset(v.code)].gender);
+    }
+    expect(modelOf('mai_loan')).toBe('kokoro');
+  });
+});
