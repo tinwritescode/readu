@@ -44,11 +44,33 @@ export interface Settings {
   /** Dub level, 0..1. */
   dubVolume: number;
   autoDub: boolean;
+  /** Where the Vietnamese is made: this computer, the Readu server, or whichever fits. */
+  readOn: ReadOn;
 }
+
+export type ReadOn = 'auto' | 'device' | 'server';
 
 export const DEFAULT_SETTINGS: Settings = {
   voice: 'mai_loan',
   originalVolume: 0.2,
   dubVolume: 1,
   autoDub: false,
+  readOn: 'auto',
 };
+
+/** Reading on this computer: whether the voice is downloaded, and how fast this computer reads once measured. */
+export interface LocalEngine {
+  installed: boolean;
+  /** Bytes to download before it can read. */
+  downloadBytes: number;
+  backend?: 'webgpu' | 'wasm';
+  /** Seconds of speech made per second. */
+  realtime?: number;
+}
+
+/** Progress of downloading the voice, kept in chrome.storage so every tab and the popup can show it. */
+export interface InstallProgress {
+  done: number;
+  total: number;
+  error?: string;
+}

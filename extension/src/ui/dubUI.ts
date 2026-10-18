@@ -3,16 +3,20 @@ import { requestCaptions } from '../adapters/youtube/bridge';
 import { send } from '../adapters/chrome/messages';
 import { loadSettings, saveSettings } from '../adapters/chrome/settings';
 import { Dub, type Overlay } from '../app/dubSession';
+import { ServerDubSource } from '../app/dubSource';
+import { LocalDubSource } from '../app/localDubSource';
+import { englishToVietnamese } from '../adapters/translate/chromeTranslator';
+import { chooseEngine, type Engine } from '../domain/speechEngine';
+import { KOKORO_VOICES } from '../domain/voices';
 import { toSegments } from '../domain/captions';
 import { isMusicVideo } from '../domain/music';
-import type { Settings, Voice } from '../domain/types';
+import type { InstallProgress, LocalEngine, ReadOn, Settings, Voice } from '../domain/types';
 import { el } from './dom';
 import { LoginForm } from './loginForm';
 
 const OVERLAY_TEXT: Record<Exclude<Overlay, 'none'>, [string, string]> = {
-  preparing: ['Đang chuẩn bị lồng tiếng…', 'Đang dịch phụ đề sang tiếng Việt'],
-  cold: ['Đang khởi động giọng đọc…', 'Lần đầu mất khoảng 30 giây'],
-  'not-ready': ['Câu tiếp theo chưa sẵn sàng', 'Đang tạo giọng đọc, sẽ phát ngay khi xong'],
+  waiting: ['Đang tạo lồng tiếng…', 'Video sẽ tự phát khi đủ tiếng'],
+  'not-ready': ['Đang xem không lồng tiếng', 'Sẽ lồng tiếng lại khi kịp'],
   quota: ['Đã hết phút lồng tiếng hôm nay', 'Gói Free giới hạn số phút mỗi ngày'],
   error: ['Không lồng tiếng được', ''],
 };
@@ -41,10 +45,16 @@ export class DubUI {
   private isMusic = false;
   /** The viewer chose to dub this music video anyway. */
   private musicOverride = false;
+  /** Reading on this computer: downloaded or not, and how fast; null until asked. */
+  private local: LocalEngine | null = null;
+  private install: InstallProgress | null = null;
+  private installing = false;
 
   async init() {
     this.settings = await loadSettings();
     this.signedIn = !!(await chrome.storage.local.get('token')).token;
+    this.install = ((await chrome.storage.local.get('kokoroInstall')) as { kokoroInstall?: InstallProgress }).kokoroInstall ?? null;
+    void this.loadLocal();
     this.button.type = 'button';
     this.button.title = 'Lồng tiếng Việt';
     this.button.setAttribute('aria-label', 'Lồng tiếng Việt');
@@ -61,6 +71,10 @@ export class DubUI {
     this.panel.addEventListener('keydown', e => e.stopPropagation());
 
     chrome.storage.onChanged.addListener(changes => {
+      if (changes.kokoroInstall) {
+        this.install = (changes.kokoroInstall.newValue as InstallProgress | undefined) ?? null;
+        this.render();
+      }
       if (changes.token) {
         this.signedIn = !!changes.token.newValue;
         if (!this.signedIn) this.setEnabled(false);
@@ -70,7 +84,7 @@ export class DubUI {
       if (changes.settings) {
         const prev = this.settings;
         this.settings = { ...this.settings, ...(changes.settings.newValue as Settings) };
-        if (this.enabled && prev.voice !== this.settings.voice) this.restart();
+        if (this.enabled && (prev.voice !== this.settings.voice || prev.readOn !== this.settings.readOn)) this.restart();
         // On or off chosen in the popup applies to this video too.
         if (prev.autoDub !== this.settings.autoDub && this.settings.autoDub !== this.enabled && this.videoId) {
           this.setEnabled(this.settings.autoDub);
@@ -107,12 +121,37 @@ export class DubUI {
   }
 
   private async loadVoices() {
-    if (this.voices.length || !this.signedIn) return;
-    const res = await send({ type: 'voices' });
+    if (this.voices.length) return;
+    // The server and this computer have the same voices; the server's list is used when signed in.
+    const res = this.signedIn ? await send({ type: 'voices' }) : null;
+    this.voices = res?.ok ? res.data : KOKORO_VOICES;
+    this.render();
+  }
+
+  private async loadLocal() {
+    const res = await send({ type: 'localEngine' });
+    if (res.ok) this.local = res.data;
+    this.render();
+  }
+
+  /** Where this dub would be made with the current setting. */
+  private engine(): Engine {
+    return chooseEngine(this.settings.readOn, this.local ?? { installed: false, downloadBytes: 0 }, navigator.onLine);
+  }
+
+  /** Downloads the voice, then measures how fast this computer reads with it. */
+  private async installLocal() {
+    this.installing = true;
+    this.render();
+    const res = await send({ type: 'localInstall' });
     if (res.ok) {
-      this.voices = res.data;
+      this.message = 'Đang đo tốc độ máy…';
       this.render();
+      const bench = await send({ type: 'localBenchmark', voice: this.settings.voice });
+      this.message = bench.ok ? '' : `Không đọc thử được: ${bench.error}`;
     }
+    this.installing = false;
+    await this.loadLocal();
   }
 
   private setEnabled(on: boolean) {
@@ -126,6 +165,8 @@ export class DubUI {
   /** The viewer turned dubbing on or off: remember it for the next videos. */
   private choose(on: boolean) {
     if (on && this.isMusic) this.musicOverride = true;
+    // Chrome's translator may need its Vietnamese pack downloaded, which only a click can start.
+    if (on && this.engine() === 'device') void englishToVietnamese().catch(() => undefined);
     this.setEnabled(on);
     void saveSettings({ autoDub: on });
   }
@@ -137,18 +178,28 @@ export class DubUI {
 
   private async startDub() {
     const video = document.querySelector<HTMLVideoElement>('#movie_player video');
-    if (!this.signedIn) {
+    if (!this.local) await this.loadLocal();
+    const engine = this.engine();
+    // The server needs an account; this computer needs the voice downloaded. Either way the panel shows how.
+    if ((engine === 'server' && !this.signedIn) || (engine === 'device' && !this.local?.installed)) {
       this.enabled = false;
       this.panel.classList.add('rdub-open');
       return this.render();
     }
     if (!video) return;
+    // The video waits for the dub from the start, so the first words are not said before the dub has them.
+    const playing = !video.paused;
+    if (playing) video.pause();
+    const giveBack = () => {
+      if (playing && video.paused) void video.play();
+    };
     this.message = 'Đang đọc phụ đề…';
     this.render();
     const result = await requestCaptions();
-    if (!this.enabled) return;
+    if (!this.enabled) return giveBack();
     const segments = result.ok ? toSegments(result.events) : [];
     if (!result.ok || segments.length === 0) {
+      giveBack();
       this.enabled = false;
       this.message =
         result.ok || result.reason === 'no-captions' ? 'Video này chưa có phụ đề nên chưa lồng tiếng được.' : 'Không đọc được phụ đề của video này.';
@@ -156,6 +207,7 @@ export class DubUI {
     }
     // Songs are left alone without a fuss: dubbing stays off and the panel says why in one line.
     if (!this.musicOverride && isMusicVideo({ category: result.category, durationSec: result.durationSec, events: result.events, segments })) {
+      giveBack();
       this.enabled = false;
       this.isMusic = true;
       this.message = '';
@@ -163,7 +215,11 @@ export class DubUI {
     }
     this.message = '';
     this.captionsNote = result.auto ? 'Phụ đề tự động' : result.language === 'en' || result.language.startsWith('en-') ? 'Phụ đề tiếng Anh' : `Phụ đề ${result.language}`;
-    this.dub = new Dub(video, { id: result.videoId, title: result.title, description: result.description }, segments, this.settings, () => this.renderStatus());
+    const source =
+      engine === 'device'
+        ? new LocalDubSource(segments, this.settings.voice)
+        : new ServerDubSource({ id: result.videoId, title: result.title, description: result.description }, segments, this.settings.voice);
+    this.dub = new Dub(video, source, segments, this.settings, () => this.renderStatus(), playing);
     this.render();
     await this.dub.start();
   }
@@ -181,11 +237,7 @@ export class DubUI {
     const overlay = this.enabled ? (this.dub?.overlay ?? 'none') : 'none';
     this.overlay.classList.toggle('rdub-show', overlay !== 'none');
     if (overlay !== 'none') {
-      const [title, sub] = OVERLAY_TEXT[overlay];
-      this.overlay.replaceChildren(
-        el('div', 'rdub-overlay-title', title),
-        el('div', 'rdub-overlay-sub', overlay === 'error' ? this.dub!.error : sub),
-      );
+      this.renderOverlay(overlay);
     }
     if (!this.dub) return this.progress.replaceChildren();
     const { done, total } = this.dub.progress;
@@ -201,7 +253,9 @@ export class DubUI {
   private panelContent(): HTMLElement[] {
     const head = el('div', 'rdub-head');
     head.append(el('div', 'rdub-title', 'Lồng tiếng'));
-    if (this.signedIn) {
+    const engine = this.engine();
+    const canDub = engine === 'device' ? !!this.local?.installed : this.signedIn;
+    if (canDub) {
       const toggle = el('button', 'rd-switch');
       toggle.type = 'button';
       toggle.setAttribute('role', 'switch');
@@ -217,14 +271,14 @@ export class DubUI {
     close.addEventListener('click', () => this.panel.classList.remove('rdub-open'));
     head.append(close);
 
-    if (!this.signedIn) {
+    const out: HTMLElement[] = [head, this.readOnSection(engine)];
+    if (engine === 'server' && !this.signedIn) {
       // Signing in here survives switching tabs to read the mail, which the toolbar popup does not.
       // Only (re)load the step when the form first appears, so a re-render keeps what the viewer typed.
       if (!this.login.el.isConnected) void this.login.show();
-      return [head, this.login.el];
+      return [...out, this.login.el];
     }
 
-    const out: HTMLElement[] = [head];
     out.push(el('div', 'rd-muted rd-small rdub-sub', ['Tiếng Anh → Tiếng Việt', this.captionsNote].filter(Boolean).join(' · ')));
     if (this.isMusic && !this.enabled) {
       const note = el('div', 'rd-tile rdub-note');
@@ -256,6 +310,79 @@ export class DubUI {
     );
     out.push(volumes, this.progress);
     return out;
+  }
+
+  /** Where the dub is made, and downloading the voice to read on this computer. */
+  private readOnSection(engine: Engine): HTMLElement {
+    const box = el('section', 'rd-card rdub-readon');
+    const choices: Array<[ReadOn, string]> = [
+      ['auto', 'Tự động'],
+      ['device', 'Máy này'],
+      ['server', 'Máy chủ'],
+    ];
+    const row = el('div', 'rdub-segmented');
+    for (const [value, label] of choices) {
+      const b = el('button', 'rd-chip' + (this.settings.readOn === value ? ' rd-active' : ''), label);
+      b.type = 'button';
+      b.addEventListener('click', () => void saveSettings({ readOn: value }));
+      row.append(b);
+    }
+    const local = this.local;
+    let note: string;
+    if (engine === 'device') {
+      const speed = local?.realtime ? ` · nhanh ${local.realtime.toFixed(1)}× (${local.backend === 'webgpu' ? 'GPU' : 'CPU'})` : '';
+      note = `Đọc trên máy này, không cần mạng${speed}`;
+    } else if (this.settings.readOn === 'auto' && local?.installed && local.realtime !== undefined) {
+      note = `Máy này đọc chậm (${local.realtime.toFixed(1)}×) nên dùng máy chủ`;
+    } else {
+      note = 'Dịch và đọc trên máy chủ Readu (cần đăng nhập)';
+    }
+    box.append(el('div', 'rdub-label', 'Đọc ở đâu'), row, el('div', 'rd-muted rd-small', note));
+
+    if (local && !local.installed) {
+      const p = this.install;
+      if (this.installing || (p && !p.error && p.done < p.total)) {
+        const pct = p ? Math.floor((100 * p.done) / p.total) : 0;
+        const bar = el('div', 'rd-bar');
+        const fill = el('div');
+        fill.style.width = `${pct}%`;
+        bar.append(fill);
+        box.append(el('div', 'rd-muted rd-small', `Đang tải giọng đọc… ${pct}%`), bar);
+      } else {
+        const mb = Math.round(local.downloadBytes / 1e6);
+        const get = el('button', 'rd-btn rd-btn-outline rd-btn-block', `Tải giọng đọc về máy (${mb} MB)`);
+        get.type = 'button';
+        get.addEventListener('click', () => void this.installLocal());
+        box.append(get);
+        if (p?.error) box.append(el('p', 'rd-error', `Tải không xong: ${p.error}`));
+      }
+    }
+    return box;
+  }
+
+  private renderOverlay(overlay: Exclude<Overlay, 'none'>) {
+    const dub = this.dub!;
+    let [title, sub] = OVERLAY_TEXT[overlay];
+    if (overlay === 'error') sub = dub.error;
+    if (overlay !== 'waiting') {
+      this.overlay.replaceChildren(el('div', 'rdub-overlay-title', title), el('div', 'rdub-overlay-sub', sub));
+      return;
+    }
+    if (dub.coldStart) sub = 'Đang khởi động giọng đọc, lần đầu mất khoảng 30 giây';
+    if (dub.note) sub = dub.note;
+    const pct = Math.round(dub.waitProgress * 100);
+    const bar = el('div', 'rd-bar');
+    const fill = el('div');
+    fill.style.width = `${pct}%`;
+    bar.append(fill);
+    const now = el('button', 'rd-link rdub-watch-now', 'Xem luôn');
+    now.type = 'button';
+    now.addEventListener('click', e => {
+      e.stopPropagation();
+      dub.watchNow();
+      this.renderStatus();
+    });
+    this.overlay.replaceChildren(el('div', 'rdub-overlay-title', `${title} ${pct}%`), el('div', 'rdub-overlay-sub', sub), bar, now);
   }
 
   private setVolumes(patch: Partial<Settings>) {

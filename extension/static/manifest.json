@@ -3,22 +3,59 @@
   "name": "Readu Dub",
   "version": "0.1.0",
   "description": "Lồng tiếng Việt cho video YouTube tiếng Anh bằng giọng đọc Readu.",
-  "permissions": ["storage"],
-  "host_permissions": ["https://api.readu.tyvn.online/*"],
-  "background": { "service_worker": "background.js" },
-  "action": { "default_popup": "popup.html", "default_title": "Readu Dub" },
+  "permissions": [
+    "storage",
+    "offscreen",
+    "unlimitedStorage"
+  ],
+  "host_permissions": [
+    "https://api.readu.tyvn.online/*",
+    "https://huggingface.co/*",
+    "https://*.huggingface.co/*",
+    "https://*.hf.co/*",
+    "https://github.com/*",
+    "https://*.githubusercontent.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Readu Dub"
+  },
   "content_scripts": [
     {
-      "matches": ["https://www.youtube.com/*"],
-      "js": ["main-world.js"],
+      "matches": [
+        "https://www.youtube.com/*"
+      ],
+      "js": [
+        "main-world.js"
+      ],
       "run_at": "document_start",
       "world": "MAIN"
     },
     {
-      "matches": ["https://www.youtube.com/*"],
-      "js": ["content.js"],
-      "css": ["ui.css", "login.css", "content.css"],
+      "matches": [
+        "https://www.youtube.com/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "css": [
+        "ui.css",
+        "login.css",
+        "content.css"
+      ],
       "run_at": "document_idle"
     }
-  ]
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
+  },
+  "cross_origin_embedder_policy": {
+    "value": "require-corp"
+  },
+  "cross_origin_opener_policy": {
+    "value": "same-origin"
+  }
 }

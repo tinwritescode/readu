@@ -17,9 +17,11 @@ import (
 const (
 	// dubSpeed is a little faster than normal: Vietnamese usually runs longer than the English it replaces.
 	dubSpeed = 1.1
-	// defaultFreeDailyMinutes is how many minutes of dub a free account can listen to per day.
-	defaultFreeDailyMinutes = 30
-	defaultTranslateModel   = "gpt-6.1-sol"
+	// defaultFreeDailyMinutes and defaultPremiumDailyMinutes are how many minutes of dub an account on those
+	// plans can listen to per day. Max is unlimited.
+	defaultFreeDailyMinutes    = 30
+	defaultPremiumDailyMinutes = 300
+	defaultTranslateModel      = "gpt-6.1-sol"
 )
 
 // newDubService builds the dub service from the environment. Without TRANSLATE_BASE_URL and TRANSLATE_API_KEY
@@ -31,11 +33,20 @@ func newDubService(db *pgxpool.Pool, speak dub.SpeakFunc, wake func(ctx context.
 	} else {
 		log.Print("TRANSLATE_BASE_URL or TRANSLATE_API_KEY is not set; dubbing is off")
 	}
-	minutes := defaultFreeDailyMinutes
-	if n, err := strconv.Atoi(os.Getenv("DUB_FREE_DAILY_MINUTES")); err == nil && n >= 0 {
-		minutes = n
+	limits := dub.Limits{
+		"free":    envMinutes("DUB_FREE_DAILY_MINUTES", defaultFreeDailyMinutes),
+		"premium": envMinutes("DUB_PREMIUM_DAILY_MINUTES", defaultPremiumDailyMinutes),
+		"max":     dub.Unlimited,
 	}
-	return dub.New(dub.NewPGStore(db), tr, speak, wake, minutes)
+	return dub.New(dub.NewPGStore(db), tr, speak, wake, limits)
+}
+
+// envMinutes reads a daily allowance in minutes from the environment.
+func envMinutes(key string, fallback int) int {
+	if n, err := strconv.Atoi(os.Getenv(key)); err == nil && n >= 0 {
+		return n
+	}
+	return fallback
 }
 
 func dubAccount(acc account) dub.Account { return dub.Account{UserID: acc.UserID, Plan: acc.Plan} }

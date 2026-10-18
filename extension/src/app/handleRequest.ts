@@ -2,8 +2,9 @@
 import { ApiError, api, token } from '../adapters/api/client';
 import { toBase64 } from '../adapters/chrome/base64';
 import type { Request } from '../adapters/chrome/messages';
+import { toOffscreen } from '../adapters/chrome/offscreen';
 import { loginErrorText, type PendingLogin } from '../domain/login';
-import type { Account } from '../domain/types';
+import type { Account, LocalEngine } from '../domain/types';
 
 export async function handleRequest(req: Request): Promise<unknown> {
   switch (req.type) {
@@ -64,6 +65,20 @@ export async function handleRequest(req: Request): Promise<unknown> {
           `/v1/dubs/${req.id}?voice=${encodeURIComponent(req.voice)}&position=${Math.round(req.position)}&rate=${req.rate}`,
         )
       ).json();
+    case 'localEngine': {
+      // The offscreen document forgets the speed it measured when it closes; the last measurement is kept here.
+      const engine = (await toOffscreen(req)) as LocalEngine;
+      const { kokoroBench } = (await chrome.storage.local.get('kokoroBench')) as { kokoroBench?: LocalEngine };
+      return { ...engine, backend: engine.backend ?? kokoroBench?.backend, realtime: engine.realtime ?? kokoroBench?.realtime };
+    }
+    case 'localBenchmark': {
+      const engine = (await toOffscreen(req)) as LocalEngine;
+      await chrome.storage.local.set({ kokoroBench: engine });
+      return engine;
+    }
+    case 'localInstall':
+    case 'localSpeak':
+      return toOffscreen(req);
     case 'dubAudio':
       return toBase64(
         await (await api(`/v1/dubs/${req.id}/audio/${req.idx}?voice=${encodeURIComponent(req.voice)}`)).arrayBuffer(),

@@ -39,7 +39,7 @@ func TestDubJobTranslatesAndSpeaksEverySegment(t *testing.T) {
 	speak := func(_ context.Context, text, voice string) ([]byte, error) {
 		return []byte(voice + ":" + text), nil
 	}
-	d := dub.New(store, tr, speak, nil, defaultFreeDailyMinutes)
+	d := dub.New(store, tr, speak, nil, dub.Limits{"free": defaultFreeDailyMinutes})
 	ctx := context.Background()
 
 	req := testDubRequest()
@@ -115,19 +115,60 @@ func TestDubQuotaCountsListenedMinutes(t *testing.T) {
 		t.Fatalf("used %d ms, %v", used, err)
 	}
 
-	// Through the service: a free account with no minutes left is refused, a paid plan is not limited.
-	d := dub.New(store, &fakeTranslator{}, nil, nil, 0)
+	// Through the service: a free account with no minutes left is refused, an unlimited plan is not counted.
+	d := dub.New(store, &fakeTranslator{}, nil, nil, dub.Limits{"free": 0, "premium": 300, "max": dub.Unlimited})
 	if err := store.SaveAudio(ctx, id, 2, "duc_an", []byte("mp3")); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := d.Listen(ctx, dubAccount(acc), id, 2, "duc_an"); !errors.Is(err, dub.ErrQuotaExceeded) {
 		t.Fatalf("free account over quota: %v", err)
 	}
-	acc.Plan = "pro"
+	acc.Plan = "pro" // not a plan: gets the free allowance
+	if _, err := d.Listen(ctx, dubAccount(acc), id, 2, "duc_an"); !errors.Is(err, dub.ErrQuotaExceeded) {
+		t.Fatalf("unknown plan should be limited like free: %v", err)
+	}
+	acc.Plan = "max"
 	if audio, err := d.Listen(ctx, dubAccount(acc), id, 2, "duc_an"); err != nil || string(audio) != "mp3" {
-		t.Fatalf("paid plan is not limited: %q, %v", audio, err)
+		t.Fatalf("max is not limited: %q, %v", audio, err)
+	}
+	if used, limit, err := d.Quota(ctx, dub.Account{UserID: acc.UserID, Plan: "premium"}); err != nil || used != 2 || limit != 300*60 {
+		t.Fatalf("premium quota %d/%d, %v", used, limit, err)
+	}
+	if _, limit, _ := d.Quota(ctx, dubAccount(acc)); limit != dub.Unlimited {
+		t.Fatalf("max quota limit %d", limit)
 	}
 	if _, err := d.Listen(ctx, dubAccount(acc), id, 0, "duc_an"); !errors.Is(err, dub.ErrNotReady) {
 		t.Fatalf("missing audio: %v", err)
+	}
+}
+
+func TestSetPlan(t *testing.T) {
+	a, sender, clock := newTestAuth(t)
+	ctx := context.Background()
+	r, _ := loginAs(t, a, sender, "max@example.com")
+
+	if err := a.setPlan(ctx, "max@example.com", "gold", nil); !errors.Is(err, errNoSuchPlan) {
+		t.Fatalf("unknown plan: %v", err)
+	}
+	if err := a.setPlan(ctx, "max@example.com", "max", nil); err != nil {
+		t.Fatal(err)
+	}
+	if acc, ok := a.sessionAccount(r); !ok || acc.Plan != "max" {
+		t.Fatalf("after upgrade %+v %v", acc, ok)
+	}
+
+	// An email that never signed in gets its plan on the first sign-in.
+	until := clock.t.Add(24 * time.Hour)
+	if err := a.setPlan(ctx, "new@example.com", "premium", &until); err != nil {
+		t.Fatal(err)
+	}
+	r2, _ := loginAs(t, a, sender, "new@example.com")
+	if acc, _ := a.sessionAccount(r2); acc.Plan != "premium" {
+		t.Fatalf("new account plan %q", acc.Plan)
+	}
+	// Once the plan ends the account is free again.
+	clock.t = until.Add(time.Minute)
+	if acc, _ := a.sessionAccount(r2); acc.Plan != "free" {
+		t.Fatalf("expired plan still %q", acc.Plan)
 	}
 }

@@ -229,7 +229,7 @@ func (a *authService) sessionAccount(r *http.Request) (account, bool) {
 		SELECT u.id, u.email, coalesce(sub.plan_id, 'free'), s.expires_at
 		FROM sessions s
 		JOIN users u ON u.id = s.user_id
-		LEFT JOIN subscriptions sub ON sub.user_id = u.id AND sub.status = 'active'
+		LEFT JOIN subscriptions sub ON sub.user_id = u.id AND sub.status = 'active' AND (sub.ends_at IS NULL OR sub.ends_at > $2)
 		WHERE s.token_hash = $1 AND s.expires_at > $2`, tokenHash(token), now).
 		Scan(&acc.UserID, &acc.Email, &acc.Plan, &expires)
 	if err != nil {

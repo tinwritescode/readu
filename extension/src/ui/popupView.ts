@@ -1,6 +1,7 @@
 // The toolbar popup's two views: sign in with an emailed code, then the plan, today's quota and the dubbing defaults.
 import { send } from '../adapters/chrome/messages';
 import { loadSettings, saveSettings } from '../adapters/chrome/settings';
+import { planName } from '../domain/plans';
 import type { Account } from '../domain/types';
 import { h } from './dom';
 import { LoginForm } from './loginForm';
@@ -20,14 +21,14 @@ export async function showLogin(app: HTMLElement) {
 export async function showAccount(app: HTMLElement, account: Account) {
   const [quota, voices, settings] = await Promise.all([send({ type: 'quota' }), send({ type: 'voices' }), loadSettings()]);
 
-  const head = h('div', { class: 'row' }, brand(), h('span', { class: 'plan' }, account.plan === 'free' ? 'Free' : account.plan));
+  const head = h('div', { class: 'row' }, brand(), h('span', { class: 'plan' }, planName(account.plan)));
 
   const usage = h('section', { class: 'rd-card' });
   if (quota.ok) {
     const { usedSeconds, limitSeconds } = quota.data;
     const used = Math.floor(usedSeconds / 60);
     if (limitSeconds < 0) {
-      usage.append(h('div', { class: 'rd-muted' }, 'Hôm nay'), h('div', { class: 'stat' }, `${used} phút`), h('div', { class: 'rd-muted rd-small' }, 'Gói của bạn không giới hạn.'));
+      usage.append(h('div', { class: 'rd-muted' }, 'Hôm nay'), h('div', { class: 'stat' }, `${used} phút`), h('div', { class: 'rd-muted rd-small' }, 'Không giới hạn phút nghe.'));
     } else {
       const fill = h('div');
       fill.style.width = `${Math.min(100, (100 * usedSeconds) / Math.max(1, limitSeconds))}%`;

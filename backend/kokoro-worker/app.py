@@ -1,12 +1,15 @@
 import io, os, re, subprocess, threading
+import numpy as np
+import onnxruntime as ort
 from fastapi import FastAPI, Header, HTTPException
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 import soundfile as sf
 import torch
-from kokoro_vietnamese.core import DEFAULT_HF_REPO_ID, SAMPLE_RATE, _download_or_resolve, resolve_voicepack_filename
+from kokoro_vietnamese.core import DEFAULT_CROSSFADE_MS, DEFAULT_HF_REPO_ID, SAMPLE_RATE, _download_or_resolve, merge_audio_chunks, resolve_voicepack_filename, split_text
 import kokoro_vietnamese.onnx_cli as onnx_cli
 from kokoro_vietnamese.onnx_cli import KokoroVietnameseONNX
+from kokoro_vietnamese.onnx_utils import phonemes_to_input_ids, select_voice_style, speed_input
 from sea_g2p import Normalizer
 from vig2p.core import WORD_RE, _backend_output_to_text, create_backend, fix_phonemes, phonemize_text, tokenize_text
 
@@ -17,12 +20,18 @@ DEFAULT_VOICE = "mai_loan"
 VOICES = ["diem_trinh", "hung_thinh", "mai_linh", "mai_loan", "manh_dung", "my_yen", "ngoc_huyen",
           "phat_tai", "thanh_dat", "thuc_trinh", "tuan_ngoc", "duc_an", "duc_duy"]
 MODEL_VERSION = os.environ.get("MODEL_VERSION", "kokoro-vietnamese-a249afe-norm2")
-# Loading the model takes seconds and ~1 GB, so it happens once; the lock keeps one inference at a time.
+# Loading the model takes seconds and ~1 GB, so it happens once and every request shares it: an ONNX Runtime
+# session can run several inferences at once. PARALLEL sentences are read together, each with an equal share
+# of the CPUs, which keeps the cores busy while another request is phonemizing or encoding MP3.
+PARALLEL = max(1, int(os.environ.get("PARALLEL", "2")))
 TTS = KokoroVietnameseONNX(voice=DEFAULT_VOICE)
+_options = ort.SessionOptions()
+_options.intra_op_num_threads = max(1, (os.cpu_count() or 1) // PARALLEL)
+TTS.session = ort.InferenceSession(str(TTS.onnx_path), sess_options=_options, providers=["CPUExecutionProvider"])
 # Voicepacks are ~0.5 MB each, so all are kept in memory and swapped per request.
 PACKS = {v: torch.load(_download_or_resolve(DEFAULT_HF_REPO_ID, "", resolve_voicepack_filename(v, None)), map_location="cpu", weights_only=True)
          for v in VOICES}
-LOCK = threading.Lock()
+SLOTS = threading.BoundedSemaphore(PARALLEL)
 # vig2p reads digits as nothing, so numbers, dates, times, money and percents are spelled out first
 # ("12/3/2024" -> "mười hai tháng ba năm hai nghìn không trăm hai mươi bốn"). This is the same
 # sea-g2p normalizer the on-device voices use. It wraps foreign words in <en> tags, which are dropped.
@@ -58,6 +67,19 @@ def phonemize(text: str) -> str:
 # KokoroVietnameseONNX.synthesize looks phonemize up in its own module.
 onnx_cli.phonemize = phonemize
 
+def synthesize_audio(text: str, pack, speed: float) -> np.ndarray:
+    """KokoroVietnameseONNX.synthesize with the voicepack passed in instead of set on the shared model, so
+    requests in different voices can run at once."""
+    chunks = []
+    for chunk in split_text(text):
+        ps = phonemize(chunk)
+        if not ps:
+            continue
+        input_ids = phonemes_to_input_ids(ps, TTS.config["vocab"], context_length=TTS.context_length)
+        waveform, _ = TTS.session.run(None, {"input_ids": input_ids, "ref_s": select_voice_style(pack, len(ps)), "speed": speed_input(speed)})
+        chunks.append(np.asarray(waveform, dtype=np.float32).reshape(-1))
+    return merge_audio_chunks(chunks, round(SAMPLE_RATE * DEFAULT_CROSSFADE_MS / 1000))
+
 class Request(BaseModel):
     text: str = Field(min_length=1, max_length=300)
     voice: str = DEFAULT_VOICE
@@ -72,12 +94,11 @@ def synthesize(req: Request, x_worker_token: str | None = Header(default=None)):
     if TOKEN and x_worker_token != TOKEN: raise HTTPException(401, "unauthorized")
     if req.voice not in PACKS: raise HTTPException(400, "voice is not available")
     if req.format != "mp3": raise HTTPException(400, "format must be mp3")
-    if not LOCK.acquire(timeout=120): raise HTTPException(503, "worker busy")
+    if not SLOTS.acquire(timeout=120): raise HTTPException(503, "worker busy")
     try:
-        TTS.voicepack = PACKS[req.voice]
-        audio, _ = TTS.synthesize(normalize(req.text), speed=req.speed)
+        audio = synthesize_audio(normalize(req.text), PACKS[req.voice], req.speed)
     finally:
-        LOCK.release()
+        SLOTS.release()
     if len(audio) == 0: raise HTTPException(422, "no audio generated")
     wav = io.BytesIO()
     sf.write(wav, audio, SAMPLE_RATE, format="WAV")
