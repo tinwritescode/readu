@@ -2,6 +2,7 @@
 // gets the dub made by the backend, and plays each Vietnamese sentence in time with the video.
 import { requestCaptions } from './bridge';
 import { toSegments } from './captions';
+import { LoginForm } from './login';
 import { LATE_START_MS, playbackRate, segmentAt, slotMs } from './timing';
 import { loadSettings, saveSettings, send, type DubStatus, type Segment, type Settings, type Voice } from './types';
 
@@ -263,6 +264,12 @@ class DubUI {
   private panel = el('div', 'rdub-panel');
   private overlay = el('div', 'rdub-overlay');
   private progress = el('div', 'rdub-progress');
+  private login = new LoginForm((_step, title, text) => {
+    const head = el('div', 'rdub-login-head');
+    head.append(el('div', 'rdub-login-title', title));
+    if (text) head.append(el('p', 'rl-text', text));
+    return [head];
+  });
   private dub: Dub | null = null;
   private enabled = false;
   private settings!: Settings;
@@ -282,6 +289,7 @@ class DubUI {
       e.stopPropagation();
       this.panel.classList.toggle('rdub-open');
       if (this.panel.classList.contains('rdub-open')) void this.loadVoices();
+      this.render();
     });
     this.panel.addEventListener('click', e => e.stopPropagation());
     this.panel.addEventListener('keydown', e => e.stopPropagation());
@@ -350,8 +358,8 @@ class DubUI {
   private async startDub() {
     const video = document.querySelector<HTMLVideoElement>('#movie_player video');
     if (!this.signedIn) {
-      this.message = 'Hãy đăng nhập trong biểu tượng Readu Dub trên thanh công cụ.';
       this.enabled = false;
+      this.panel.classList.add('rdub-open');
       return this.render();
     }
     if (!video) return;
@@ -419,6 +427,13 @@ class DubUI {
     const lang = el('div', 'rdub-lang');
     lang.append(el('span', 'rdub-chip', 'EN'), el('span', 'rdub-arrow', '→'), el('span', 'rdub-chip rdub-chip-accent', 'VI'));
     if (this.captionsNote) lang.append(el('span', 'rdub-note', this.captionsNote));
+
+    if (!this.signedIn) {
+      // Signing in here survives switching tabs to read the mail, which the toolbar popup does not.
+      // Only (re)load the step when the form first appears, so a re-render keeps what the viewer typed.
+      if (!this.login.el.isConnected) void this.login.show();
+      return [head, this.login.el];
+    }
 
     const out: HTMLElement[] = [head, lang];
     if (this.message) out.push(el('div', 'rdub-message', this.message));

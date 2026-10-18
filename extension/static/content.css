@@ -89,3 +89,14 @@
 .rdub-overlay-title { font-size: 14px; font-weight: 700; }
 .rdub-overlay-sub { color: var(--rdub-muted); font-size: 12px; margin-top: 2px; }
 .rdub-overlay-sub:empty { display: none; }
+
+/* The sign-in form inside the panel, on the panel's dark colors. */
+.rdub-panel .rl {
+  --rl-text: var(--rdub-text); --rl-muted: var(--rdub-muted); --rl-line: var(--rdub-line); --rl-field: var(--rdub-surface);
+  --rl-accent: var(--rdub-accent); --rl-accent-ink: var(--rdub-accent-ink); --rl-danger: #f87171;
+  gap: 14px; font-family: inherit;
+}
+.rdub-login-head { display: flex; flex-direction: column; gap: 4px; }
+.rdub-login-title { font-size: 17px; font-weight: 700; }
+.rdub-panel .rl-digit { height: 44px; font-size: 18px; }
+.rdub-panel .rl-primary, .rdub-panel .rl-input { height: 42px; font-size: 14px; }

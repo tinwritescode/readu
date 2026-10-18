@@ -1,5 +1,6 @@
 // The service worker is the only part that talks to the Readu API. It holds the session token,
 // and its host permission lets it call the API without CORS, which a content script on youtube.com could not.
+import { loginErrorText, type PendingLogin } from './login';
 import type { Account, Reply, Request, Responses } from './types';
 
 const API_BASE = 'https://api.readu.tyvn.online';
@@ -48,15 +49,29 @@ function toBase64(buf: ArrayBuffer): string {
 
 async function handle(req: Request): Promise<unknown> {
   switch (req.type) {
-    case 'requestCode':
-      await api('/v1/auth/code', { method: 'POST', json: { email: req.email }, auth: false });
+    case 'requestCode': {
+      // The login step is remembered here, not in the popup: Chrome closes the popup as soon as the viewer
+      // clicks elsewhere, e.g. to open their mail, and the next popup picks up at the code step.
+      const pendingLogin: PendingLogin = { email: req.email, sentAt: Date.now() };
+      await chrome.storage.local.set({ pendingLogin, lastEmail: req.email });
+      await chrome.storage.local.remove('loginError');
+      try {
+        await api('/v1/auth/code', { method: 'POST', json: { email: req.email }, auth: false });
+      } catch (e) {
+        const message = e instanceof ApiError ? loginErrorText(e.status, e.message) : loginErrorText(0, String(e));
+        await chrome.storage.local.remove('pendingLogin');
+        await chrome.storage.local.set({ loginError: { email: req.email, message, at: Date.now() } });
+        throw e;
+      }
       return null;
+    }
     case 'verifyCode': {
       const res = await api('/v1/auth/session', { method: 'POST', json: { email: req.email, code: req.code }, auth: false });
       const { token } = (await res.json()) as { token: string };
       await chrome.storage.local.set({ token });
       const account = (await (await api('/v1/me')).json()) as Account;
       await chrome.storage.local.set({ account });
+      await chrome.storage.local.remove(['pendingLogin', 'loginError']);
       return account;
     }
     case 'logout':

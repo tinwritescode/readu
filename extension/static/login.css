@@ -1,0 +1,47 @@
+/* The sign-in form, shared by the popup (light) and the panel on YouTube (dark).
+   Colors come from the --rl-* variables, which each host sets. */
+.rl, .rl-scope {
+  --rl-text: #15171a; --rl-muted: #4b5059; --rl-line: #c9cdd3; --rl-field: #ffffff;
+  --rl-accent: #0f766e; --rl-accent-ink: #ffffff; --rl-danger: #b91c1c;
+}
+.rl {
+  display: flex; flex-direction: column; gap: 18px; color: var(--rl-text);
+}
+.rl h2 { margin: 0; font-size: 22px; font-weight: 700; line-height: 1.3; }
+.rl .rl-text { margin: 0; font-size: 14px; color: var(--rl-muted); line-height: 1.5; overflow-wrap: anywhere; }
+.rl-form { display: flex; flex-direction: column; gap: 14px; }
+.rl-label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 500; color: var(--rl-text); }
+.rl-input {
+  box-sizing: border-box; width: 100%; height: 46px; padding: 0 12px;
+  border: 1px solid var(--rl-line); border-radius: 10px; background: var(--rl-field); color: var(--rl-text);
+  font: inherit; font-size: 15px;
+}
+.rl-input:focus, .rl-digit:focus { outline: 2px solid var(--rl-accent); outline-offset: -1px; border-color: var(--rl-accent); }
+.rl-primary {
+  height: 48px; border: 0; border-radius: 10px; background: var(--rl-accent); color: var(--rl-accent-ink);
+  font: inherit; font-size: 15px; font-weight: 600; cursor: pointer;
+}
+.rl-primary:disabled { opacity: .55; cursor: default; }
+.rl-error { margin: 0; color: var(--rl-danger); font-size: 13px; }
+.rl-error:empty { display: none; }
+.rl-foot { margin: auto 0 0; font-size: 12px; color: var(--rl-muted); }
+.rl-digits { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; }
+.rl-digit {
+  box-sizing: border-box; width: 100%; height: 54px; padding: 0; text-align: center;
+  border: 1.5px solid var(--rl-line); border-radius: 10px; background: var(--rl-field); color: var(--rl-text);
+  font: inherit; font-size: 22px; font-weight: 600; caret-color: var(--rl-accent);
+}
+.rl-digit:not(:placeholder-shown) { border-color: var(--rl-accent); }
+.rl-back {
+  align-self: flex-start; width: 44px; height: 44px; margin: -10px 0 -8px -10px; padding: 0;
+  border: 0; border-radius: 10px; background: none; color: var(--rl-text);
+  display: flex; align-items: center; justify-content: center; cursor: pointer;
+}
+.rl-back:hover { background: color-mix(in srgb, var(--rl-text) 8%, transparent); }
+.rl-links { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.rl-link {
+  min-height: 36px; padding: 0 8px; border: 0; background: none; color: var(--rl-accent);
+  font: inherit; font-size: 14px; font-weight: 500; cursor: pointer;
+}
+.rl-link:disabled { color: var(--rl-muted); cursor: default; }
+.rl-link.rl-muted { color: var(--rl-muted); }
