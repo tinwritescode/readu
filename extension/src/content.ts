@@ -121,8 +121,8 @@ class Dub {
       this.error =
         status === 401
           ? 'Hãy đăng nhập trong biểu tượng Readu Dub trên thanh công cụ.'
-          : status === 503
-            ? 'Máy chủ chưa bật tính năng lồng tiếng.'
+          : status === 503 || status === 404
+            ? 'Máy chủ chưa bật tính năng lồng tiếng (cần deploy backend bản mới).'
             : `Lỗi máy chủ: ${error}`;
     }
     this.onUpdate(this);
