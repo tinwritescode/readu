@@ -26,6 +26,14 @@ describe('toSegments', () => {
     expect(segs[0]).toMatchObject({ start: 3000, end: 4000 });
   });
 
+  it('joins a short fragment to the sentence after it', () => {
+    const segs = toSegments([
+      { tStartMs: 0, dDurationMs: 600, segs: [{ utf8: 'and' }, { utf8: ' then', tOffsetMs: 300 }] },
+      { tStartMs: 2000, dDurationMs: 2000, segs: [{ utf8: 'we' }, { utf8: ' ship', tOffsetMs: 400 }, { utf8: ' the', tOffsetMs: 800 }, { utf8: ' build', tOffsetMs: 1200 }] },
+    ]);
+    expect(segs.map(s => s.text)).toEqual(['and then we ship the build']);
+  });
+
   it('cuts run-on text at 30 words', () => {
     const text = Array.from({ length: 45 }, (_, i) => `w${i}`).join(' ');
     const segs = toSegments([{ tStartMs: 0, dDurationMs: 9000, segs: [{ utf8: text }] }]);

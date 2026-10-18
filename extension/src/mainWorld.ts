@@ -9,7 +9,7 @@ interface Player extends HTMLElement {
 }
 
 interface PlayerResponse {
-  videoDetails?: { videoId?: string };
+  videoDetails?: { videoId?: string; title?: string; shortDescription?: string };
   captions?: { playerCaptionsTracklistRenderer?: { captionTracks?: CaptionTrack[] } };
 }
 
@@ -81,7 +81,9 @@ async function captions(): Promise<CaptionsResult> {
       if (signed) events = await fetchEvents(withJson3(signed, track, translate));
     }
     if (!events) return { ok: false, videoId, reason: 'fetch-failed' };
-    return { ok: true, videoId, events: events as never, language: track.languageCode, auto };
+    const title = pr.videoDetails?.title ?? '';
+    const description = (pr.videoDetails?.shortDescription ?? '').slice(0, 1000);
+    return { ok: true, videoId, title, description, events: events as never, language: track.languageCode, auto };
   } catch {
     return { ok: false, videoId, reason: 'fetch-failed' };
   }

@@ -23,6 +23,10 @@ const PAUSE_MS = 1200;
 /** Long run-on caption text is cut so each line fits a voice-over slot. */
 const MAX_WORDS = 30;
 const MAX_MS = 15000;
+/** A piece shorter than this many words is joined to the next one; a dub of two words at a time sounds choppy. */
+const MIN_WORDS = 4;
+/** ...unless the speaker pauses this long between them. */
+const JOIN_GAP_MS = 1500;
 
 /** Flattens caption events into timed words. Auto captions carry a time per word; manual ones per cue. */
 function words(events: Json3Event[]): Word[] {
@@ -78,8 +82,21 @@ export function toSegments(events: Json3Event[]): Segment[] {
       cur = [];
     }
   });
-  return groups.map((g, i) => {
-    const nextStart = groups[i + 1]?.[0].start ?? Infinity;
+  const merged: Word[][] = [];
+  for (const g of groups) {
+    const prev = merged[merged.length - 1];
+    const joinable =
+      prev &&
+      prev.length < MIN_WORDS &&
+      !SENTENCE_END.test(prev[prev.length - 1].text) &&
+      g[0].start - prev[prev.length - 1].end <= JOIN_GAP_MS &&
+      prev.length + g.length <= MAX_WORDS &&
+      g[g.length - 1].end - prev[0].start <= MAX_MS;
+    if (joinable) prev.push(...g);
+    else merged.push(g);
+  }
+  return merged.map((g, i) => {
+    const nextStart = merged[i + 1]?.[0].start ?? Infinity;
     const start = g[0].start;
     const end = Math.max(start + 1, Math.min(g[g.length - 1].end, nextStart));
     return { start, end, text: g.map(w => w.text).join(' ') };

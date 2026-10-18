@@ -59,7 +59,15 @@ export type Request =
   | { type: 'me' }
   | { type: 'quota' }
   | { type: 'voices' }
-  | { type: 'createDub'; videoId: string; voice: string; position: number; segments: Segment[] }
+  | {
+      type: 'createDub';
+      videoId: string;
+      title: string;
+      description: string;
+      voice: string;
+      position: number;
+      segments: Segment[];
+    }
   | { type: 'dubStatus'; id: number; voice: string; position: number }
   | { type: 'dubAudio'; id: number; idx: number; voice: string };
 

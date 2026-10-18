@@ -89,7 +89,14 @@ async function handle(req: Request): Promise<unknown> {
       return (
         await api('/v1/dubs', {
           method: 'POST',
-          json: { videoId: req.videoId, voice: req.voice, position: Math.round(req.position), segments: req.segments },
+          json: {
+            videoId: req.videoId,
+            title: req.title,
+            description: req.description,
+            voice: req.voice,
+            position: Math.round(req.position),
+            segments: req.segments,
+          },
         })
       ).json();
     case 'dubStatus':

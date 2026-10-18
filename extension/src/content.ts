@@ -10,7 +10,11 @@ const POLL_MS = 2000;
 /** With no audio after this long, the speech worker is probably waking from sleep. */
 const COLD_START_HINT_MS = 5000;
 /** Sentences ahead of the current one whose audio is fetched in advance. */
-const PREFETCH_AHEAD = 6;
+const PREFETCH_AHEAD = 10;
+/** A sentence still speaking may run this far into the next one's time before it is cut off. */
+const MAX_OVERRUN_MS = 1500;
+/** The shortest time a sentence is squeezed into after a late start. */
+const MIN_SLOT_MS = 800;
 
 type Overlay = 'none' | 'preparing' | 'cold' | 'not-ready' | 'quota' | 'error';
 
@@ -36,39 +40,102 @@ function base64ToBuffer(b64: string): ArrayBuffer {
   return bytes.buffer;
 }
 
+/**
+ * Turns the video's own sound down while dubbing. The video is routed once through a Web Audio gain, so the
+ * level never fights YouTube, which rewrites video.volume from its own slider. If the element cannot be routed
+ * (another extension already captured it), video.volume is used instead.
+ */
+class OriginalVolume {
+  private static graphs = new WeakMap<HTMLVideoElement, GainNode>();
+  private gain: GainNode | null;
+  private level = 1;
+  /** The viewer's own volume, when falling back to video.volume. */
+  private viewerVolume: number | null = null;
+
+  constructor(private video: HTMLVideoElement) {
+    this.gain = OriginalVolume.route(video);
+    if (!this.gain) video.addEventListener('volumechange', this.onVolumeChange);
+  }
+
+  private static route(video: HTMLVideoElement): GainNode | null {
+    const known = OriginalVolume.graphs.get(video);
+    if (known) return known;
+    // Without a user gesture on the page the context would start suspended and silence the video.
+    if (!navigator.userActivation?.hasBeenActive) return null;
+    try {
+      const ctx = new AudioContext();
+      const gain = ctx.createGain();
+      ctx.createMediaElementSource(video).connect(gain).connect(ctx.destination);
+      // A routed video plays through this context, so it must run whenever the video does.
+      video.addEventListener('play', () => void ctx.resume());
+      void ctx.resume();
+      OriginalVolume.graphs.set(video, gain);
+      return gain;
+    } catch {
+      return null;
+    }
+  }
+
+  set(level: number) {
+    this.level = level;
+    if (this.gain) {
+      this.gain.gain.value = level;
+      return;
+    }
+    this.viewerVolume ??= this.video.volume;
+    this.video.volume = this.viewerVolume * level;
+  }
+
+  restore() {
+    if (this.gain) {
+      this.gain.gain.value = 1;
+      return;
+    }
+    this.video.removeEventListener('volumechange', this.onVolumeChange);
+    if (this.viewerVolume !== null) this.video.volume = this.viewerVolume;
+    this.viewerVolume = null;
+  }
+
+  // A volume this code did not set came from the viewer or YouTube: take it as the full level and lower it again.
+  private onVolumeChange = () => {
+    if (this.viewerVolume === null || Math.abs(this.video.volume - this.viewerVolume * this.level) < 0.01) return;
+    this.viewerVolume = this.video.volume;
+    this.video.volume = this.viewerVolume * this.level;
+  };
+}
+
 /** One dubbing session for one video: polls the backend and plays sentences in sync with the video. */
 class Dub {
+  /** The dub has its own context so pausing the video can pause it mid-sentence. */
   private ctx = new AudioContext();
   private gain = this.ctx.createGain();
+  private original: OriginalVolume;
   private buffers = new Map<number, AudioBuffer | 'loading' | 'error'>();
   private loading = 0;
   private status: DubStatus | null = null;
   private ready = new Set<number>();
   private failed = new Set<number>();
-  private playing: { idx: number; source?: AudioBufferSourceNode; duration: number } | null = null;
+  private playing: { idx: number; source: AudioBufferSourceNode; duration: number; slot: number } | null = null;
   /** The last sentence started or skipped, so it is not started twice. */
   private handled = -1;
   private startedAt = Date.now();
   private pollTimer = 0;
   private tickTimer = 0;
   private stopped = false;
-  private ownVolumeChange = false;
-  private baseVolume: number;
 
   constructor(
     private video: HTMLVideoElement,
-    private videoId: string,
+    private info: { id: string; title: string; description: string },
     private segments: Segment[],
     private settings: Settings,
     private onUpdate: (dub: Dub) => void,
   ) {
     this.gain.connect(this.ctx.destination);
     this.gain.gain.value = settings.dubVolume;
-    this.baseVolume = video.volume;
-    video.addEventListener('volumechange', this.onVolumeChange);
+    this.original = new OriginalVolume(video);
+    this.original.set(settings.originalVolume);
     video.addEventListener('seeking', this.onSeek);
     video.addEventListener('ratechange', this.onRateChange);
-    this.duck();
   }
 
   overlay: Overlay = 'preparing';
@@ -81,7 +148,9 @@ class Dub {
   async start() {
     const res = await send({
       type: 'createDub',
-      videoId: this.videoId,
+      videoId: this.info.id,
+      title: this.info.title,
+      description: this.info.description,
       voice: this.settings.voice,
       position: this.video.currentTime * 1000,
       segments: this.segments,
@@ -92,7 +161,7 @@ class Dub {
       return;
     }
     this.apply(res.data);
-    this.tickTimer = window.setInterval(() => this.tick(), 100);
+    this.tickTimer = window.setInterval(() => this.tick(), 50);
     this.schedulePoll();
   }
 
@@ -101,17 +170,16 @@ class Dub {
     clearInterval(this.tickTimer);
     clearTimeout(this.pollTimer);
     this.stopSource();
-    this.video.removeEventListener('volumechange', this.onVolumeChange);
     this.video.removeEventListener('seeking', this.onSeek);
     this.video.removeEventListener('ratechange', this.onRateChange);
-    this.setVideoVolume(this.baseVolume);
+    this.original.restore();
     void this.ctx.close();
   }
 
   setVolumes(originalVolume: number, dubVolume: number) {
     this.settings = { ...this.settings, originalVolume, dubVolume };
     this.gain.gain.value = dubVolume;
-    this.duck();
+    this.original.set(originalVolume);
   }
 
   private fail(status: number, error: string) {
@@ -153,24 +221,6 @@ class Dub {
     this.onUpdate(this);
   }
 
-  // The original track is turned down to the chosen level of whatever volume the viewer set.
-  private duck() {
-    this.setVideoVolume(this.baseVolume * this.settings.originalVolume);
-  }
-
-  private setVideoVolume(v: number) {
-    this.ownVolumeChange = true;
-    this.video.volume = Math.min(1, Math.max(0, v));
-    queueMicrotask(() => (this.ownVolumeChange = false));
-  }
-
-  private onVolumeChange = () => {
-    if (this.ownVolumeChange) return;
-    // The viewer (or YouTube) changed the volume: take it as the new full level and duck again.
-    this.baseVolume = this.video.volume;
-    this.duck();
-  };
-
   private onSeek = () => {
     this.stopSource();
     this.handled = -1;
@@ -178,12 +228,12 @@ class Dub {
 
   private onRateChange = () => {
     const p = this.playing;
-    if (p?.source) p.source.playbackRate.value = playbackRate(p.duration, slotMs(this.segments, p.idx), this.video.playbackRate);
+    if (p) p.source.playbackRate.value = playbackRate(p.duration, p.slot, this.video.playbackRate);
   };
 
   private stopSource() {
     try {
-      this.playing?.source?.stop();
+      this.playing?.source.stop();
     } catch {
       // already stopped
     }
@@ -212,14 +262,21 @@ class Dub {
     for (const idx of this.buffers.keys()) if (idx < from - 20 && this.buffers.get(idx) !== 'loading') this.buffers.delete(idx);
 
     this.updateOverlay(cur);
+    // Pausing holds the sentence where it is; playing again carries on from there.
     if (this.video.paused || this.video.seeking || this.video.ended) {
-      this.stopSource();
+      if (this.ctx.state === 'running') void this.ctx.suspend();
       return;
     }
     if (this.ctx.state === 'suspended') void this.ctx.resume();
     if (cur < 0 || cur === this.handled) return;
 
     const lateness = t - this.segments[cur].start;
+    // The previous sentence is still speaking: let it finish rather than cut it off, unless it has run far
+    // into this sentence's time. The next one then starts late and speeds up to catch up.
+    if (this.playing && this.playing.idx !== cur) {
+      if (lateness < MAX_OVERRUN_MS) return;
+      this.stopSource();
+    }
     const buf = this.buffers.get(cur);
     if (!(buf instanceof AudioBuffer)) {
       if (lateness > LATE_START_MS || this.failed.has(cur) || buf === 'error') this.handled = cur;
@@ -227,16 +284,14 @@ class Dub {
     }
     this.handled = cur;
     if (lateness > LATE_START_MS) return;
-    this.stopSource();
-    const rate = playbackRate(buf.duration, slotMs(this.segments, cur), this.video.playbackRate);
+    // The sentence always starts from its beginning, fitted into what is left of its time.
+    const slot = Math.max(MIN_SLOT_MS, slotMs(this.segments, cur) - lateness);
     const source = this.ctx.createBufferSource();
     source.buffer = buf;
-    source.playbackRate.value = rate;
+    source.playbackRate.value = playbackRate(buf.duration, slot, this.video.playbackRate);
     source.connect(this.gain);
-    const offset = lateness > 300 ? ((lateness / 1000) * rate) / this.video.playbackRate : 0;
-    if (offset >= buf.duration) return;
-    source.start(0, offset);
-    const playing = { idx: cur, source, duration: buf.duration };
+    source.start();
+    const playing = { idx: cur, source, duration: buf.duration, slot };
     source.onended = () => {
       if (this.playing === playing) this.playing = null;
     };
@@ -248,7 +303,7 @@ class Dub {
     let next: Overlay = 'none';
     if (this.ready.size === 0) {
       next = Date.now() - this.startedAt > COLD_START_HINT_MS && (this.status?.translated ?? 0) > 0 ? 'cold' : 'preparing';
-    } else if (cur >= 0 && cur !== this.handled && !this.ready.has(cur) && !this.failed.has(cur) && !this.video.paused) {
+    } else if (cur >= 0 && cur !== this.handled && !this.playing && !this.ready.has(cur) && !this.failed.has(cur) && !this.video.paused) {
       next = 'not-ready';
     }
     if (next !== this.overlay) {
@@ -378,7 +433,7 @@ class DubUI {
     }
     this.message = '';
     this.captionsNote = result.auto ? 'Phụ đề tự động' : result.language === 'en' || result.language.startsWith('en-') ? 'Phụ đề tiếng Anh' : `Phụ đề ${result.language} → EN`;
-    this.dub = new Dub(video, result.videoId, segments, this.settings, () => this.renderStatus());
+    this.dub = new Dub(video, { id: result.videoId, title: result.title, description: result.description }, segments, this.settings, () => this.renderStatus());
     this.render();
     await this.dub.start();
   }
