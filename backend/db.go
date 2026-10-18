@@ -4,6 +4,7 @@ import (
 	"context"
 	"embed"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/stdlib"
@@ -15,7 +16,15 @@ var migrations embed.FS
 
 // openDB connects to Postgres and applies any pending migrations.
 func openDB(ctx context.Context, url string) (*pgxpool.Pool, error) {
-	pool, err := pgxpool.New(ctx, url)
+	cfg, err := pgxpool.ParseConfig(url)
+	if err != nil {
+		return nil, err
+	}
+	// The service sleeps on Railway after a few minutes without outbound traffic, and an open
+	// connection's health checks count as traffic. Idle connections are closed quickly so it can.
+	cfg.MinConns = 0
+	cfg.MaxConnIdleTime = time.Minute
+	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}
