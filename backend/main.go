@@ -14,7 +14,7 @@
 //	TRANSLATE_BASE_URL OpenAI-compatible API used to translate YouTube captions; dubbing is off without it
 //	TRANSLATE_API_KEY  key for TRANSLATE_BASE_URL
 //	TRANSLATE_MODEL    translation model (default gpt-6.1-sol)
-//	DUB_FREE_DAILY_VIDEOS how many videos a free account may dub per day (default 10)
+//	DUB_FREE_DAILY_MINUTES minutes of dub a free account may listen to per day (default 30)
 //	PORT               listen port (default 8080)
 package main
 
@@ -100,7 +100,7 @@ func main() {
 	} else {
 		log.Print("TRANSLATE_BASE_URL or TRANSLATE_API_KEY is not set; dubbing is off")
 	}
-	s.dubs = newDubService(db, tr, s.speak)
+	s.dubs = newDubService(db, tr, s.speak, kokoro.wake)
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", handleRoot)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { w.Write([]byte("ok")) })

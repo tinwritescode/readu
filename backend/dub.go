@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
@@ -22,8 +23,8 @@ const (
 	maxDubSegmentChars = 600
 	// dubSpeed is a little faster than normal: Vietnamese usually runs longer than the English it replaces.
 	dubSpeed = 1.1
-	// defaultFreeDailyDubs is how many different videos a free account can dub per day.
-	defaultFreeDailyDubs = 10
+	// defaultFreeDailyMinutes is how many minutes of dub a free account can listen to per day.
+	defaultFreeDailyMinutes = 30
 )
 
 var (
@@ -44,6 +45,7 @@ type dubRequest struct {
 	Description string            `json:"description"`
 	Voice       string            `json:"voice"`
 	Position    int               `json:"position"` // ms, where the viewer is
+	Rate        float64           `json:"rate"`     // the viewer's playback rate
 	Segments    []dubSegmentInput `json:"segments"`
 }
 
@@ -147,9 +149,16 @@ func (st *dubStore) upsert(ctx context.Context, req *dubRequest) (int64, error) 
 	return id, tx.Commit(ctx)
 }
 
-// chargeQuota records that the user dubbed this video today. Paid plans are not limited;
-// a free account may start limit new videos a day, and reopening one already counted is free.
-func (st *dubStore) chargeQuota(ctx context.Context, acc account, dubID int64, limit int) error {
+// usedTodayMs is how many ms of dub the user listened to today.
+func (st *dubStore) usedTodayMs(ctx context.Context, userID int64) (int, error) {
+	var ms int
+	err := st.db.QueryRow(ctx, `SELECT coalesce(sum(ms), 0) FROM dub_listens WHERE user_id = $1 AND day = current_date`, userID).Scan(&ms)
+	return ms, err
+}
+
+// chargeListen counts a sentence the user is about to hear against today's quota, once per sentence and day.
+// Paid plans are not limited; a free account is refused once it has used limitMs.
+func (st *dubStore) chargeListen(ctx context.Context, acc account, dubID int64, idx, limitMs int) error {
 	if acc.Plan != "free" {
 		return nil
 	}
@@ -158,33 +167,30 @@ func (st *dubStore) chargeQuota(ctx context.Context, acc account, dubID int64, l
 		return err
 	}
 	defer tx.Rollback(ctx)
-	// Lock the user's row so two tabs cannot both take the last slot.
+	// Lock the user's row so two tabs cannot both spend the last minute.
 	if _, err := tx.Exec(ctx, `SELECT 1 FROM users WHERE id = $1 FOR UPDATE`, acc.UserID); err != nil {
 		return err
 	}
 	var counted bool
 	var used int
 	if err := tx.QueryRow(ctx, `
-		SELECT coalesce(bool_or(dub_id = $2), false), count(*) FROM dub_usage
-		WHERE user_id = $1 AND day = current_date`, acc.UserID, dubID).Scan(&counted, &used); err != nil {
+		SELECT coalesce(bool_or(dub_id = $2 AND idx = $3), false), coalesce(sum(ms), 0) FROM dub_listens
+		WHERE user_id = $1 AND day = current_date`, acc.UserID, dubID, idx).Scan(&counted, &used); err != nil {
 		return err
 	}
 	if counted {
 		return nil
 	}
-	if used >= limit {
+	if used >= limitMs {
 		return errQuotaExceeded
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO dub_usage (user_id, dub_id, day) VALUES ($1, $2, current_date)`, acc.UserID, dubID); err != nil {
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO dub_listens (user_id, dub_id, idx, day, ms)
+		SELECT $1, dub_id, idx, current_date, end_ms - start_ms FROM dub_segments WHERE dub_id = $2 AND idx = $3`,
+		acc.UserID, dubID, idx); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
-}
-
-func (st *dubStore) usedToday(ctx context.Context, userID int64) (int, error) {
-	var n int
-	err := st.db.QueryRow(ctx, `SELECT count(*) FROM dub_usage WHERE user_id = $1 AND day = current_date`, userID).Scan(&n)
-	return n, err
 }
 
 // dubSegment is one stored sentence and whether it has audio in the job's voice.
@@ -253,19 +259,30 @@ func (st *dubStore) exists(ctx context.Context, dubID int64) (bool, error) {
 
 // dubService wires the store, the translator, the speech worker and the running jobs.
 type dubService struct {
-	store      *dubStore
-	jobs       *dubJobs
-	freeDaily  int
-	configured bool
+	store       *dubStore
+	jobs        *dubJobs
+	freeDailyMs int
+	configured  bool
+	// wake starts the sleeping speech worker without making it speak.
+	wake func(ctx context.Context) error
 }
 
-func newDubService(db *pgxpool.Pool, tr translator, speak speakFunc) *dubService {
+func newDubService(db *pgxpool.Pool, tr translator, speak speakFunc, wake func(ctx context.Context) error) *dubService {
 	store := &dubStore{db: db}
-	limit := defaultFreeDailyDubs
-	if n, err := strconv.Atoi(os.Getenv("DUB_FREE_DAILY_VIDEOS")); err == nil && n >= 0 {
-		limit = n
+	minutes := defaultFreeDailyMinutes
+	if n, err := strconv.Atoi(os.Getenv("DUB_FREE_DAILY_MINUTES")); err == nil && n >= 0 {
+		minutes = n
 	}
-	return &dubService{store: store, jobs: newDubJobs(store, tr, speak), freeDaily: limit, configured: tr != nil}
+	return &dubService{store: store, jobs: newDubJobs(store, tr, speak), freeDailyMs: minutes * 60_000, configured: tr != nil, wake: wake}
+}
+
+// overQuota reports whether a free account has used up today's minutes.
+func (d *dubService) overQuota(ctx context.Context, acc account) (bool, error) {
+	if acc.Plan != "free" {
+		return false, nil
+	}
+	used, err := d.store.usedTodayMs(ctx, acc.UserID)
+	return used >= d.freeDailyMs, err
 }
 
 func (d *dubService) status(ctx context.Context, dubID int64, voice string) (dubStatus, error) {
@@ -322,16 +339,27 @@ func (s *server) handleCreateDub(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "could not create dub")
 		return
 	}
-	if err := s.dubs.store.chargeQuota(ctx, acc, id, s.dubs.freeDaily); err != nil {
-		if errors.Is(err, errQuotaExceeded) {
-			writeError(w, http.StatusPaymentRequired, err.Error())
+	if over, err := s.dubs.overQuota(ctx, acc); err != nil || over {
+		if err != nil {
+			log.Printf("dub quota: %v", err)
+			writeError(w, http.StatusInternalServerError, "could not check quota")
 			return
 		}
-		log.Printf("dub quota: %v", err)
-		writeError(w, http.StatusInternalServerError, "could not check quota")
+		writeError(w, http.StatusPaymentRequired, errQuotaExceeded.Error())
 		return
 	}
-	s.dubs.jobs.touch(id, req.Voice, req.Position)
+	// The speech worker sleeps when idle and takes about half a minute to start; waking it now lets that
+	// overlap the first translation.
+	if s.dubs.wake != nil {
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			defer cancel()
+			if err := s.dubs.wake(ctx); err != nil {
+				log.Printf("wake speech worker: %v", err)
+			}
+		}()
+	}
+	s.dubs.jobs.touch(id, req.Voice, req.Position, req.Rate)
 	s.writeDubStatus(w, r, id, req.Voice)
 }
 
@@ -352,7 +380,8 @@ func (s *server) handleDubStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	// Polling keeps the job alive and tells it where the viewer is, so nearby sentences come first.
 	pos, _ := strconv.Atoi(r.URL.Query().Get("position"))
-	s.dubs.jobs.touch(id, voice, pos)
+	rate, _ := strconv.ParseFloat(r.URL.Query().Get("rate"), 64)
+	s.dubs.jobs.touch(id, voice, pos, rate)
 	s.writeDubStatus(w, r, id, voice)
 }
 
@@ -368,7 +397,8 @@ func (s *server) writeDubStatus(w http.ResponseWriter, r *http.Request, id int64
 }
 
 func (s *server) handleDubAudio(w http.ResponseWriter, r *http.Request) {
-	if !s.authorized(r) {
+	acc, ok := s.auth.sessionAccount(r)
+	if !ok {
 		writeError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
@@ -382,6 +412,14 @@ func (s *server) handleDubAudio(w http.ResponseWriter, r *http.Request) {
 	if errors.Is(err, pgx.ErrNoRows) {
 		writeError(w, http.StatusNotFound, "audio is not ready")
 		return
+	}
+	if err == nil {
+		// Fetching a sentence's audio is what counts as listening to it.
+		err = s.dubs.store.chargeListen(r.Context(), acc, id, idx, s.dubs.freeDailyMs)
+		if errors.Is(err, errQuotaExceeded) {
+			writeError(w, http.StatusPaymentRequired, err.Error())
+			return
+		}
 	}
 	if err != nil {
 		log.Printf("dub audio: %v", err)
@@ -400,16 +438,16 @@ func (s *server) handleDubQuota(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
-	used, err := s.dubs.store.usedToday(r.Context(), acc.UserID)
+	used, err := s.dubs.store.usedTodayMs(r.Context(), acc.UserID)
 	if err != nil {
 		log.Printf("dub quota: %v", err)
 		writeError(w, http.StatusInternalServerError, "could not read quota")
 		return
 	}
-	limit := s.dubs.freeDaily
+	limit := s.dubs.freeDailyMs / 1000
 	if acc.Plan != "free" {
 		limit = -1 // unlimited
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{"plan": acc.Plan, "used": used, "limit": limit})
+	json.NewEncoder(w).Encode(map[string]any{"plan": acc.Plan, "usedSeconds": used / 1000, "limitSeconds": limit})
 }

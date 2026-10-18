@@ -36,24 +36,72 @@ func TestDubRequestValidate(t *testing.T) {
 	}
 }
 
-func TestPickNextSegmentFollowsViewer(t *testing.T) {
-	segs := []dubSegment{
-		{idx: 0, start: 0, hasAudio: true},
-		{idx: 1, start: 1000},
-		{idx: 2, start: 2000},
-		{idx: 3, start: 3000},
-	}
-	if got := pickNextSegment(segs, 2500, nil); got != 2 {
-		t.Fatalf("from 2.5s: got %d, want the sentence playing then", got)
-	}
-	if got := pickNextSegment(segs, 3500, map[int]bool{3: true}); got != 1 {
-		t.Fatalf("after the end: got %d, want wrap to first missing", got)
-	}
+// sentences makes n sentences of 3 s each, the first ready of them translated and spoken.
+func sentences(n, ready, translated int) []dubSegment {
+	segs := make([]dubSegment, n)
 	for i := range segs {
-		segs[i].hasAudio = true
+		segs[i] = dubSegment{idx: i, start: i * 3000, end: i*3000 + 2500, translated: i < translated, hasAudio: i < ready}
 	}
-	if got := pickNextSegment(segs, 0, nil); got != -1 {
-		t.Fatalf("all done: got %d", got)
+	return segs
+}
+
+func newTestJob() *dubJob {
+	return &dubJob{speaking: map[int]bool{}, failures: map[int]int{}, filling: true}
+}
+
+func TestPlanStartsWithASmallBatchAtTheViewer(t *testing.T) {
+	segs := sentences(200, 0, 0)
+	p := planWork(segs, 30_000, 1, newTestJob(), nil)
+	if p.translate != 10 || p.batch != firstBatch || len(p.speak) != 0 {
+		t.Fatalf("plan %+v, want a first batch at sentence 10", p)
+	}
+}
+
+func TestPlanSpeaksTwoAndTranslatesAhead(t *testing.T) {
+	segs := sentences(200, 0, 8)
+	p := planWork(segs, 0, 1, newTestJob(), nil)
+	if len(p.speak) != speakConcurrency || p.speak[0] != 0 || p.speak[1] != 1 {
+		t.Fatalf("speak %v", p.speak)
+	}
+	if p.translate != 8 || p.batch != translateBatch {
+		t.Fatalf("translate %d batch %d, want the next 40 from 8", p.translate, p.batch)
+	}
+}
+
+func TestPlanStaysInsideTheWindow(t *testing.T) {
+	// 3 minutes of 3 s sentences is 60; at 1x nothing past sentence 59 is spoken, nothing past 99 translated.
+	segs := sentences(200, 59, 200)
+	job := newTestJob()
+	p := planWork(segs, 0, 1, job, nil)
+	if len(p.speak) != 1 || p.speak[0] != 59 {
+		t.Fatalf("speak %v, want only sentence 59", p.speak)
+	}
+	segs = sentences(200, 60, 100)
+	if p = planWork(segs, 0, 1, job, nil); !p.rest || job.filling {
+		t.Fatalf("plan %+v filling %v, want rest with a full window", p, job.filling)
+	}
+	// 60 s later only 2 minutes are ready ahead: still above the 90 s refill mark, so it keeps resting.
+	if p = planWork(segs, 60_000, 1, job, nil); !p.rest {
+		t.Fatalf("plan %+v, want rest above the refill mark", p)
+	}
+	// At 100 s only 80 s are ready ahead: refill, speaking from sentence 60 and translating from 100.
+	if p = planWork(segs, 100_000, 1, job, nil); p.rest || p.translate != 100 || len(p.speak) != 2 || p.speak[0] != 60 {
+		t.Fatalf("plan %+v, want a refill", p)
+	}
+}
+
+func TestPlanWindowGrowsWithPlaybackRate(t *testing.T) {
+	segs := sentences(200, 59, 200)
+	if p := planWork(segs, 0, 2, newTestJob(), nil); len(p.speak) != 2 || p.speak[0] != 59 {
+		t.Fatalf("speak %v, want work past 3 minutes at 2x", p.speak)
+	}
+}
+
+func TestPlanFollowsASeekAndSkipsFailures(t *testing.T) {
+	segs := sentences(200, 0, 200)
+	p := planWork(segs, 300_000, 1, newTestJob(), map[int]bool{100: true})
+	if len(p.speak) != 2 || p.speak[0] != 101 || p.speak[1] != 102 {
+		t.Fatalf("speak %v, want 101 and 102 after a seek to 5:00 with 100 failed", p.speak)
 	}
 }
 

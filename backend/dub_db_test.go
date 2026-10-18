@@ -37,7 +37,7 @@ func TestDubJobTranslatesAndSpeaksEverySegment(t *testing.T) {
 	speak := func(_ context.Context, text, voice string) ([]byte, error) {
 		return []byte(voice + ":" + text), nil
 	}
-	d := newDubService(db, tr, speak)
+	d := newDubService(db, tr, speak, nil)
 	ctx := context.Background()
 
 	req := testDubRequest()
@@ -49,7 +49,7 @@ func TestDubJobTranslatesAndSpeaksEverySegment(t *testing.T) {
 		t.Fatalf("same captions should reuse dub %d, got %d, %v", id, again, err)
 	}
 
-	d.jobs.touch(id, req.Voice, 1500)
+	d.jobs.touch(id, req.Voice, 0, 1)
 	deadline := time.Now().Add(5 * time.Second)
 	var st dubStatus
 	for time.Now().Before(deadline) {
@@ -64,9 +64,9 @@ func TestDubJobTranslatesAndSpeaksEverySegment(t *testing.T) {
 	if st.Stage != "done" || len(st.Ready) != 3 || st.Translated != 3 {
 		t.Fatalf("status %+v", st)
 	}
-	if tr.calls.Load() != 2 {
-		// Starting at 1.5s translates sentences 1-2 first, then wraps to sentence 0.
-		t.Fatalf("translator called %d times, want 2", tr.calls.Load())
+	if tr.calls.Load() != 1 {
+		// The first batch the viewer waits on holds up to 8 sentences, so 3 go in one call.
+		t.Fatalf("translator called %d times, want 1", tr.calls.Load())
 	}
 	if _, _, glossary, err := d.store.context(ctx, id); err != nil || len(glossary) != 1 || glossary[0].VI != "Hai" {
 		t.Fatalf("glossary %+v, %v", glossary, err)
@@ -77,40 +77,38 @@ func TestDubJobTranslatesAndSpeaksEverySegment(t *testing.T) {
 	}
 }
 
-func TestDubQuotaCountsVideosPerDay(t *testing.T) {
+func TestDubQuotaCountsListenedMinutes(t *testing.T) {
 	a, sender, _ := newTestAuth(t)
-	d := newDubService(a.db, &fakeTranslator{}, nil)
+	d := newDubService(a.db, &fakeTranslator{}, nil, nil)
 	ctx := context.Background()
 	r, _ := loginAs(t, a, sender, "dub@example.com")
 	acc, ok := a.sessionAccount(r)
 	if !ok {
 		t.Fatal("no account")
 	}
+	id, err := d.store.upsert(ctx, testDubRequest()) // three sentences of 1 s each
+	if err != nil {
+		t.Fatal(err)
+	}
 
-	first, err := d.store.upsert(ctx, testDubRequest())
-	if err != nil {
+	const limit = 1500 // ms
+	if err := d.store.chargeListen(ctx, acc, id, 0, limit); err != nil {
 		t.Fatal(err)
 	}
-	other := testDubRequest()
-	other.VideoID = "aaaaaaaaaaa"
-	second, err := d.store.upsert(ctx, other)
-	if err != nil {
-		t.Fatal(err)
+	if err := d.store.chargeListen(ctx, acc, id, 0, limit); err != nil {
+		t.Fatalf("hearing a sentence again should be free: %v", err)
 	}
-	if err := d.store.chargeQuota(ctx, acc, first, 1); err != nil {
-		t.Fatal(err)
+	if err := d.store.chargeListen(ctx, acc, id, 1, limit); err != nil {
+		t.Fatalf("1 s used of 1.5 s: %v", err)
 	}
-	if err := d.store.chargeQuota(ctx, acc, first, 1); err != nil {
-		t.Fatalf("reopening a counted video should be free: %v", err)
+	if err := d.store.chargeListen(ctx, acc, id, 2, limit); !errors.Is(err, errQuotaExceeded) {
+		t.Fatalf("want quota error after 2 s, got %v", err)
 	}
-	if err := d.store.chargeQuota(ctx, acc, second, 1); !errors.Is(err, errQuotaExceeded) {
-		t.Fatalf("want quota error, got %v", err)
+	if used, err := d.store.usedTodayMs(ctx, acc.UserID); err != nil || used != 2000 {
+		t.Fatalf("used %d ms, %v", used, err)
 	}
 	acc.Plan = "pro"
-	if err := d.store.chargeQuota(ctx, acc, second, 1); err != nil {
+	if err := d.store.chargeListen(ctx, acc, id, 2, limit); err != nil {
 		t.Fatalf("paid plan is not limited: %v", err)
-	}
-	if used, err := d.store.usedToday(ctx, acc.UserID); err != nil || used != 1 {
-		t.Fatalf("used %d, %v", used, err)
 	}
 }
