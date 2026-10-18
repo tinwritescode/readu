@@ -10,13 +10,13 @@ import (
 
 type fakeTranslator struct{ calls atomic.Int32 }
 
-func (f *fakeTranslator) translate(_ context.Context, _, lines []string) ([]string, error) {
+func (f *fakeTranslator) translate(_ context.Context, req translateRequest) (translateResult, error) {
 	f.calls.Add(1)
-	out := make([]string, len(lines))
-	for i, l := range lines {
-		out[i] = "vi:" + l
+	out := make([]string, len(req.Lines))
+	for i, l := range req.Lines {
+		out[i] = "vi:" + l.Text
 	}
-	return out, nil
+	return translateResult{Lines: out, Terms: []term{{EN: "Two", VI: "Hai"}}}, nil
 }
 
 func testDubRequest() *dubRequest {
@@ -67,6 +67,9 @@ func TestDubJobTranslatesAndSpeaksEverySegment(t *testing.T) {
 	if tr.calls.Load() != 2 {
 		// Starting at 1.5s translates sentences 1-2 first, then wraps to sentence 0.
 		t.Fatalf("translator called %d times, want 2", tr.calls.Load())
+	}
+	if _, _, glossary, err := d.store.context(ctx, id); err != nil || len(glossary) != 1 || glossary[0].VI != "Hai" {
+		t.Fatalf("glossary %+v, %v", glossary, err)
 	}
 	audio, err := d.store.audio(ctx, id, 1, req.Voice)
 	if err != nil || string(audio) != "duc_an:vi:Two." {

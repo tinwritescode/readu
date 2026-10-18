@@ -38,10 +38,13 @@ type dubSegmentInput struct {
 }
 
 type dubRequest struct {
-	VideoID  string            `json:"videoId"`
-	Voice    string            `json:"voice"`
-	Position int               `json:"position"` // ms, where the viewer is
-	Segments []dubSegmentInput `json:"segments"`
+	VideoID string `json:"videoId"`
+	// Title and Description help the translator with names and register; both are optional.
+	Title       string            `json:"title"`
+	Description string            `json:"description"`
+	Voice       string            `json:"voice"`
+	Position    int               `json:"position"` // ms, where the viewer is
+	Segments    []dubSegmentInput `json:"segments"`
 }
 
 // validate cleans the request in place and reports what is wrong with it.
@@ -70,12 +73,22 @@ func (r *dubRequest) validate() error {
 		prev = s.Start
 	}
 	r.Voice = kokoroVoiceOr(r.Voice)
+	r.Title = truncateRunes(strings.TrimSpace(r.Title), 200)
+	r.Description = truncateRunes(strings.TrimSpace(r.Description), 1000)
 	return nil
 }
 
-// sourceHash identifies a caption track by its exact sentences and times.
+func truncateRunes(s string, n int) string {
+	if utf8.RuneCountInString(s) <= n {
+		return s
+	}
+	return string([]rune(s)[:n])
+}
+
+// sourceHash identifies a caption track by its exact sentences and times, and the way it is translated.
 func sourceHash(segs []dubSegmentInput) []byte {
 	h := sha256.New()
+	h.Write([]byte(translationVersion + "\x00"))
 	json.NewEncoder(h).Encode(segs)
 	return h.Sum(nil)
 }
@@ -114,9 +127,9 @@ func (st *dubStore) upsert(ctx context.Context, req *dubRequest) (int64, error) 
 	defer tx.Rollback(ctx)
 	// Two viewers can open the same video at once; the loser of the race reads the winner's row.
 	err = tx.QueryRow(ctx, `
-		INSERT INTO dubs (video_id, source_hash, segment_count, created_at) VALUES ($1, $2, $3, now())
+		INSERT INTO dubs (video_id, source_hash, segment_count, title, description, created_at) VALUES ($1, $2, $3, $4, $5, now())
 		ON CONFLICT (video_id, source_hash) DO NOTHING RETURNING id`,
-		req.VideoID, hash, len(req.Segments)).Scan(&id)
+		req.VideoID, hash, len(req.Segments), req.Title, req.Description).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return st.upsert(ctx, req)
 	}
@@ -177,7 +190,7 @@ func (st *dubStore) usedToday(ctx context.Context, userID int64) (int, error) {
 // dubSegment is one stored sentence and whether it has audio in the job's voice.
 type dubSegment struct {
 	idx        int
-	start      int
+	start, end int
 	source, vi string
 	translated bool
 	hasAudio   bool
@@ -186,7 +199,7 @@ type dubSegment struct {
 // segments loads every sentence of a dub, marking which have audio in voice.
 func (st *dubStore) segments(ctx context.Context, dubID int64, voice string) ([]dubSegment, error) {
 	rows, err := st.db.Query(ctx, `
-		SELECT s.idx, s.start_ms, s.source_text, coalesce(s.vi_text, ''), s.vi_text IS NOT NULL, a.idx IS NOT NULL
+		SELECT s.idx, s.start_ms, s.end_ms, s.source_text, coalesce(s.vi_text, ''), s.vi_text IS NOT NULL, a.idx IS NOT NULL
 		FROM dub_segments s
 		LEFT JOIN dub_audio a ON a.dub_id = s.dub_id AND a.idx = s.idx AND a.voice = $2
 		WHERE s.dub_id = $1 ORDER BY s.idx`, dubID, voice)
@@ -195,9 +208,20 @@ func (st *dubStore) segments(ctx context.Context, dubID int64, voice string) ([]
 	}
 	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (dubSegment, error) {
 		var s dubSegment
-		err := row.Scan(&s.idx, &s.start, &s.source, &s.vi, &s.translated, &s.hasAudio)
+		err := row.Scan(&s.idx, &s.start, &s.end, &s.source, &s.vi, &s.translated, &s.hasAudio)
 		return s, err
 	})
+}
+
+// context returns what the translator is told about a dub's video.
+func (st *dubStore) context(ctx context.Context, dubID int64) (title, description string, glossary []term, err error) {
+	err = st.db.QueryRow(ctx, `SELECT title, description, glossary FROM dubs WHERE id = $1`, dubID).Scan(&title, &description, &glossary)
+	return
+}
+
+func (st *dubStore) saveGlossary(ctx context.Context, dubID int64, glossary []term) error {
+	_, err := st.db.Exec(ctx, `UPDATE dubs SET glossary = $2 WHERE id = $1`, dubID, glossary)
+	return err
 }
 
 func (st *dubStore) saveTranslations(ctx context.Context, dubID int64, first int, lines []string) error {

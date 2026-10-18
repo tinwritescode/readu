@@ -9,10 +9,14 @@ import (
 )
 
 const (
-	// translateBatch is how many sentences go to the translator at once; enough context, short enough to come back fast.
-	translateBatch = 25
-	// translateContext is how many earlier sentences ride along so terms stay consistent across batches.
-	translateContext = 4
+	// translateBatch is how many sentences go to the translator at once: enough for the model to follow the
+	// thread of the talk, short enough to come back in a few seconds.
+	translateBatch = 40
+	// translateContext is how many earlier sentences, with their translations, ride along into the next batch.
+	translateContext = 6
+	// translateAhead: while speaking, the next untranslated sentence within this many is translated alongside,
+	// so the speech worker never waits on the translator.
+	translateAhead = 15
 	// maxSegmentFailures: after this many failed tries a sentence is skipped and stays silent.
 	maxSegmentFailures = 3
 	// dubJobIdle: a job stops when nobody has polled it for this long; the next poll starts it again.
@@ -32,8 +36,10 @@ type dubJob struct {
 	position int // ms
 	seen     time.Time
 	running  bool
-	failures map[int]int
-	err      string
+	// translating is set while a look-ahead translation runs beside the speech work.
+	translating bool
+	failures    map[int]int
+	err         string
 }
 
 // dubJobs runs at most one worker per dub and voice. Work is held in memory only:
@@ -48,6 +54,8 @@ type dubJobs struct {
 
 	mu   sync.Mutex
 	jobs map[jobKey]*dubJob
+
+	glossaryMu sync.Mutex
 }
 
 func newDubJobs(store *dubStore, tr translator, speak speakFunc) *dubJobs {
@@ -151,8 +159,14 @@ func (j *dubJobs) run(key jobKey) {
 			return
 		}
 		if !segs[target].translated {
+			if j.translatingAhead(key) {
+				// The look-ahead translation likely covers target; wait for it rather than translate twice.
+				time.Sleep(200 * time.Millisecond)
+				continue
+			}
 			err = j.translateFrom(ctx, key.dubID, segs, target)
 		} else {
+			j.translateAheadOf(ctx, key, segs, target, skip)
 			err = j.speakSegment(ctx, key, segs[target])
 		}
 		j.finish(key, target, err)
@@ -169,25 +183,40 @@ func (j *dubJobs) translateFrom(ctx context.Context, dubID int64, segs []dubSegm
 	for end < len(segs) && end-first < translateBatch && !segs[end].translated {
 		end++
 	}
-	var prior []string
+	title, description, glossary, err := j.store.context(ctx, dubID)
+	if err != nil {
+		return err
+	}
+	req := translateRequest{Title: title, Description: description, Glossary: glossary}
 	for i := max(0, first-translateContext); i < first; i++ {
 		line := segs[i].source
 		if segs[i].translated {
 			line += " => " + segs[i].vi
 		}
-		prior = append(prior, line)
+		req.Prior = append(req.Prior, line)
 	}
-	lines := make([]string, 0, end-first)
-	for _, s := range segs[first:end] {
-		lines = append(lines, s.source)
+	for i := first; i < end; i++ {
+		req.Lines = append(req.Lines, translateLine{Text: segs[i].source, Seconds: float64(slotEnd(segs, i)-segs[i].start) / 1000})
 	}
-	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	ctx, cancel := context.WithTimeout(ctx, 4*time.Minute)
 	defer cancel()
-	vi, err := j.translate.translate(ctx, prior, lines)
+	res, err := j.translate.translate(ctx, req)
 	if err != nil {
 		return err
 	}
-	return j.store.saveTranslations(ctx, dubID, first, vi)
+	if len(res.Terms) > 0 {
+		// Two translations of one dub can run at once; the glossary is read and written under the lock.
+		j.glossaryMu.Lock()
+		_, _, current, err := j.store.context(ctx, dubID)
+		if err == nil {
+			err = j.store.saveGlossary(ctx, dubID, mergeGlossary(current, res.Terms))
+		}
+		j.glossaryMu.Unlock()
+		if err != nil {
+			log.Printf("dub %d: save glossary: %v", dubID, err)
+		}
+	}
+	return j.store.saveTranslations(ctx, dubID, first, res.Lines)
 }
 
 func (j *dubJobs) speakSegment(ctx context.Context, key jobKey, seg dubSegment) error {
@@ -198,6 +227,53 @@ func (j *dubJobs) speakSegment(ctx context.Context, key jobKey, seg dubSegment) 
 		return err
 	}
 	return j.store.saveAudio(ctx, key.dubID, seg.idx, key.voice, audio)
+}
+
+// translateAheadOf starts translating the next untranslated run after target in the background, unless one
+// is already running, so translations are ready by the time the speech work reaches them.
+func (j *dubJobs) translateAheadOf(ctx context.Context, key jobKey, segs []dubSegment, target int, skip map[int]bool) {
+	next := -1
+	for i := target + 1; i < len(segs) && i <= target+translateAhead; i++ {
+		if !segs[i].translated && !skip[segs[i].idx] {
+			next = i
+			break
+		}
+	}
+	if next < 0 {
+		return
+	}
+	j.mu.Lock()
+	job := j.jobs[key]
+	if job.translating {
+		j.mu.Unlock()
+		return
+	}
+	job.translating = true
+	j.mu.Unlock()
+	go func() {
+		err := j.translateFrom(ctx, key.dubID, segs, next)
+		j.mu.Lock()
+		job.translating = false
+		j.mu.Unlock()
+		if err != nil {
+			j.finish(key, next, err)
+			log.Printf("dub %d: translate ahead from %d: %v", key.dubID, next, err)
+		}
+	}()
+}
+
+func (j *dubJobs) translatingAhead(key jobKey) bool {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	return j.jobs[key].translating
+}
+
+// slotEnd is when sentence i's time ends: where the next one starts, or its own end for the last one.
+func slotEnd(segs []dubSegment, i int) int {
+	if i+1 < len(segs) {
+		return segs[i+1].start
+	}
+	return segs[i].end
 }
 
 // pickNextSegment returns the sentence to work on next: the one playing at position, then the ones after it,
