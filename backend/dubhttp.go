@@ -19,8 +19,8 @@ const (
 	dubSpeed = 1.1
 	// defaultFreeDailyMinutes and defaultPremiumDailyMinutes are how many minutes of dub an account on those
 	// plans can listen to per day. Max is unlimited.
-	defaultFreeDailyMinutes    = 30
-	defaultPremiumDailyMinutes = 300
+	defaultFreeDailyMinutes    = 60
+	defaultPremiumDailyMinutes = 240
 	defaultTranslateModel      = "gpt-6.1-sol"
 )
 
