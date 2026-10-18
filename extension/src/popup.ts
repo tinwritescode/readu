@@ -35,16 +35,17 @@ async function showAccount(account: Account) {
   const head = h('div', { class: 'row' }, brand(), h('span', { class: 'plan' }, account.plan === 'free' ? 'Free' : account.plan));
   const usage = h('div', { class: 'usage' });
   if (quota.ok) {
-    const { used, limit } = quota.data;
-    if (limit < 0) {
-      usage.append(h('div', { class: 'row' }, h('strong', {}, 'Video hôm nay'), h('span', {}, `${used} · không giới hạn`)));
+    const { usedSeconds, limitSeconds } = quota.data;
+    const used = Math.floor(usedSeconds / 60);
+    if (limitSeconds < 0) {
+      usage.append(h('div', { class: 'row' }, h('strong', {}, 'Phút hôm nay'), h('span', {}, `${used} phút · không giới hạn`)));
     } else {
       const fill = h('div');
-      fill.style.width = `${Math.min(100, (100 * used) / Math.max(1, limit))}%`;
+      fill.style.width = `${Math.min(100, (100 * usedSeconds) / Math.max(1, limitSeconds))}%`;
       usage.append(
-        h('div', { class: 'row' }, h('strong', {}, 'Video hôm nay'), h('span', {}, `${used}/${limit}`)),
+        h('div', { class: 'row' }, h('strong', {}, 'Phút hôm nay'), h('span', {}, `${used}/${Math.round(limitSeconds / 60)} phút`)),
         h('div', { class: 'bar' }, fill),
-        h('div', { class: 'note' }, 'Mở lại video đã lồng tiếng hôm nay không tính thêm lượt.'),
+        h('div', { class: 'note' }, 'Chỉ tính phần lồng tiếng đã phát; nghe lại câu cũ trong ngày không tính thêm.'),
       );
     }
   }

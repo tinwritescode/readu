@@ -95,13 +95,16 @@ async function handle(req: Request): Promise<unknown> {
             description: req.description,
             voice: req.voice,
             position: Math.round(req.position),
+            rate: req.rate,
             segments: req.segments,
           },
         })
       ).json();
     case 'dubStatus':
       return (
-        await api(`/v1/dubs/${req.id}?voice=${encodeURIComponent(req.voice)}&position=${Math.round(req.position)}`)
+        await api(
+          `/v1/dubs/${req.id}?voice=${encodeURIComponent(req.voice)}&position=${Math.round(req.position)}&rate=${req.rate}`,
+        )
       ).json();
     case 'dubAudio':
       return toBase64(

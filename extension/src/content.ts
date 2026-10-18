@@ -22,7 +22,7 @@ const OVERLAY_TEXT: Record<Exclude<Overlay, 'none'>, [string, string]> = {
   preparing: ['Đang chuẩn bị lồng tiếng…', 'Đang dịch phụ đề sang tiếng Việt'],
   cold: ['Đang khởi động giọng đọc…', 'Lần đầu mất khoảng 30 giây'],
   'not-ready': ['Câu tiếp theo chưa sẵn sàng', 'Đang tạo giọng đọc, sẽ phát ngay khi xong'],
-  quota: ['Đã hết lượt lồng tiếng hôm nay', 'Gói Free giới hạn số video mỗi ngày'],
+  quota: ['Đã hết phút lồng tiếng hôm nay', 'Gói Free giới hạn số phút mỗi ngày'],
   error: ['Không lồng tiếng được', ''],
 };
 
@@ -153,6 +153,7 @@ class Dub {
       description: this.info.description,
       voice: this.settings.voice,
       position: this.video.currentTime * 1000,
+      rate: this.video.playbackRate,
       segments: this.segments,
     });
     if (this.stopped) return;
@@ -205,6 +206,7 @@ class Dub {
         id: this.status!.id,
         voice: this.settings.voice,
         position: this.video.currentTime * 1000,
+        rate: this.video.playbackRate,
       });
       if (this.stopped) return;
       if (res.ok) this.apply(res.data);
@@ -246,6 +248,12 @@ class Dub {
     this.loading++;
     void send({ type: 'dubAudio', id: this.status.id, idx, voice: this.settings.voice })
       .then(async res => {
+        if (!res.ok && res.status === 402) {
+          // Today's minutes ran out mid-video: stop asking and say so.
+          this.buffers.delete(idx);
+          clearTimeout(this.pollTimer);
+          return this.fail(402, res.error);
+        }
         if (!res.ok) throw new Error(res.error);
         this.buffers.set(idx, await this.ctx.decodeAudioData(base64ToBuffer(res.data)));
       })

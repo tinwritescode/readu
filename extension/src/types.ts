@@ -28,11 +28,12 @@ export interface Account {
   plan: string;
 }
 
+/** Minutes of dub listened to today. */
 export interface Quota {
   plan: string;
-  used: number;
+  usedSeconds: number;
   /** -1 means unlimited. */
-  limit: number;
+  limitSeconds: number;
 }
 
 export interface Settings {
@@ -66,9 +67,10 @@ export type Request =
       description: string;
       voice: string;
       position: number;
+      rate: number;
       segments: Segment[];
     }
-  | { type: 'dubStatus'; id: number; voice: string; position: number }
+  | { type: 'dubStatus'; id: number; voice: string; position: number; rate: number }
   | { type: 'dubAudio'; id: number; idx: number; voice: string };
 
 /** Every reply carries either data or an error with the HTTP status (0 for network errors). */
