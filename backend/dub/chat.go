@@ -1,4 +1,4 @@
-package main
+package dub
 
 import (
 	"bytes"
@@ -8,85 +8,22 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 )
 
-const defaultTranslateModel = "gpt-6.1-sol"
-
-// translationVersion names the prompt and batching below. It is part of a dub's cache key, so changing how
-// captions are translated makes new dubs instead of reusing translations made the old way.
-const translationVersion = "t2"
-
-// translator turns a batch of English sentences into Vietnamese, one line per sentence.
-type translator interface {
-	translate(ctx context.Context, req translateRequest) (translateResult, error)
-}
-
-// translateRequest is one batch of a video's sentences and what helps translate them consistently.
-type translateRequest struct {
-	Title, Description string
-	// Glossary holds names and terms already translated earlier in the video.
-	Glossary []term
-	// Prior holds the sentences just before the batch with their translations, for flow and pronouns.
-	Prior []string
-	Lines []translateLine
-}
-
-// translateLine is one sentence and how long the speaker takes to say it in the video.
-type translateLine struct {
-	Text    string
-	Seconds float64
-}
-
-// term is a name or piece of jargon and how this video's dub says it.
-type term struct {
-	EN string `json:"en"`
-	VI string `json:"vi"`
-}
-
-type translateResult struct {
-	Lines []string
-	// Terms are new glossary entries the model chose in this batch.
-	Terms []term
-}
-
-// syllablesPerSecond is about how fast the Kokoro voice reads Vietnamese at dubSpeed. Each translation is
-// asked to fit its slot at this pace, so the dub rarely has to be sped up or runs into the next sentence.
-const syllablesPerSecond = 4.5
-
-// syllableBudget is how many Vietnamese syllables fit a slot, never fewer than 3.
-func syllableBudget(seconds float64) int {
-	return max(3, int(seconds*syllablesPerSecond))
-}
-
-// syllables counts Vietnamese syllables, which are written as separate words.
-func syllables(s string) int {
-	return len(strings.Fields(s))
-}
-
-// tooLong reports whether a translation needs more than the dub may speed up to fit its slot.
-func tooLong(vi string, seconds float64) bool {
-	return float64(syllables(vi)) > float64(syllableBudget(seconds))*1.3
-}
-
-// chatTranslator translates through an OpenAI-compatible chat completions endpoint.
-type chatTranslator struct {
+// ChatTranslator translates through an OpenAI-compatible chat completions endpoint.
+type ChatTranslator struct {
 	baseURL, apiKey, model string
 	client                 *http.Client
 }
 
-// newChatTranslator returns nil unless TRANSLATE_BASE_URL and TRANSLATE_API_KEY are set; dubbing is then turned off.
-func newChatTranslator() *chatTranslator {
-	base, key := os.Getenv("TRANSLATE_BASE_URL"), os.Getenv("TRANSLATE_API_KEY")
-	if base == "" || key == "" {
-		return nil
-	}
-	return &chatTranslator{
-		baseURL: strings.TrimRight(base, "/"),
+// NewChatTranslator talks to the chat completions API at baseURL with key and model.
+func NewChatTranslator(baseURL, key, model string) *ChatTranslator {
+	return &ChatTranslator{
+		baseURL: strings.TrimRight(baseURL, "/"),
 		apiKey:  key,
-		model:   envOr("TRANSLATE_MODEL", defaultTranslateModel),
+		model:   model,
 		client:  &http.Client{Timeout: 3 * time.Minute},
 	}
 }
@@ -105,7 +42,7 @@ Write the way a skilled Vietnamese dubbing translator would:
 
 Answer with JSON only: {"lines":[{"n":1,"vi":"..."}],"terms":[{"en":"...","vi":"..."}]}`
 
-func translatePrompt(req translateRequest) string {
+func translatePrompt(req TranslateRequest) string {
 	var b strings.Builder
 	if req.Title != "" {
 		fmt.Fprintf(&b, "Video title: %s\n", req.Title)
@@ -138,8 +75,8 @@ Each numbered line shows the English original, the current Vietnamese, and a syl
 Rewrite the Vietnamese so it fits the budget and still says everything the English says, in natural spoken Vietnamese with the same pronouns and terms.
 Answer with JSON only: {"lines":[{"n":1,"vi":"..."}]}`
 
-func (c *chatTranslator) translate(ctx context.Context, req translateRequest) (translateResult, error) {
-	var res translateResult
+func (c *ChatTranslator) Translate(ctx context.Context, req TranslateRequest) (TranslateResult, error) {
+	var res TranslateResult
 	var err error
 	// A reply that skips or garbles a line is retried once; models get it right on a second try.
 	for attempt := 0; attempt < 2; attempt++ {
@@ -152,7 +89,7 @@ func (c *chatTranslator) translate(ctx context.Context, req translateRequest) (t
 		}
 	}
 	if err != nil {
-		return translateResult{}, err
+		return TranslateResult{}, err
 	}
 	c.shorten(ctx, req.Lines, res.Lines)
 	return res, nil
@@ -160,7 +97,7 @@ func (c *chatTranslator) translate(ctx context.Context, req translateRequest) (t
 
 // shorten rewrites, in place, the lines too long to fit their slot even sped up. It is best effort: a failure
 // keeps the longer lines, which the player still fits by speeding up.
-func (c *chatTranslator) shorten(ctx context.Context, lines []translateLine, vi []string) {
+func (c *ChatTranslator) shorten(ctx context.Context, lines []Line, vi []string) {
 	var idx []int
 	var b strings.Builder
 	for i, l := range lines {
@@ -174,7 +111,7 @@ func (c *chatTranslator) shorten(ctx context.Context, lines []translateLine, vi 
 	}
 	raw, err := c.complete(ctx, shortenSystem, b.String())
 	if err == nil {
-		var short translateResult
+		var short TranslateResult
 		if short, err = parseTranslation(raw, len(idx)); err == nil {
 			for k, i := range idx {
 				vi[i] = short.Lines[k]
@@ -185,7 +122,7 @@ func (c *chatTranslator) shorten(ctx context.Context, lines []translateLine, vi 
 	log.Printf("shorten %d lines: %v", len(idx), err)
 }
 
-func (c *chatTranslator) complete(ctx context.Context, system, user string) (string, error) {
+func (c *ChatTranslator) complete(ctx context.Context, system, user string) (string, error) {
 	body, err := json.Marshal(map[string]any{
 		"model": c.model,
 		"messages": []chatMessage{
@@ -232,7 +169,7 @@ type chatMessage struct {
 
 // parseTranslation reads the model's JSON and returns one line per input line, in order, plus any new terms.
 // Models sometimes wrap the JSON in a code fence or a sentence, so it reads from the first { to the last }.
-func parseTranslation(raw string, want int) (translateResult, error) {
+func parseTranslation(raw string, want int) (TranslateResult, error) {
 	if i, j := strings.Index(raw, "{"), strings.LastIndex(raw, "}"); i >= 0 && j > i {
 		raw = raw[i : j+1]
 	}
@@ -241,10 +178,10 @@ func parseTranslation(raw string, want int) (translateResult, error) {
 			N  int    `json:"n"`
 			VI string `json:"vi"`
 		} `json:"lines"`
-		Terms []term `json:"terms"`
+		Terms []Term `json:"terms"`
 	}
 	if err := json.Unmarshal([]byte(raw), &out); err != nil {
-		return translateResult{}, fmt.Errorf("translation is not JSON: %w", err)
+		return TranslateResult{}, fmt.Errorf("translation is not JSON: %w", err)
 	}
 	result := make([]string, want)
 	for _, l := range out.Lines {
@@ -254,32 +191,14 @@ func parseTranslation(raw string, want int) (translateResult, error) {
 	}
 	for i, l := range result {
 		if l == "" {
-			return translateResult{}, fmt.Errorf("translation is missing line %d of %d", i+1, want)
+			return TranslateResult{}, fmt.Errorf("translation is missing line %d of %d", i+1, want)
 		}
 	}
-	var terms []term
+	var terms []Term
 	for _, t := range out.Terms {
 		if t.EN = strings.TrimSpace(t.EN); t.EN != "" && strings.TrimSpace(t.VI) != "" {
-			terms = append(terms, term{EN: t.EN, VI: strings.TrimSpace(t.VI)})
+			terms = append(terms, Term{EN: t.EN, VI: strings.TrimSpace(t.VI)})
 		}
 	}
-	return translateResult{Lines: result, Terms: terms}, nil
-}
-
-// maxGlossary keeps the prompt small on long videos; the earliest terms are usually the most important.
-const maxGlossary = 80
-
-// mergeGlossary adds new terms whose English is not in the glossary yet.
-func mergeGlossary(glossary, add []term) []term {
-	seen := map[string]bool{}
-	for _, t := range glossary {
-		seen[strings.ToLower(t.EN)] = true
-	}
-	for _, t := range add {
-		if k := strings.ToLower(t.EN); !seen[k] && len(glossary) < maxGlossary {
-			seen[k] = true
-			glossary = append(glossary, t)
-		}
-	}
-	return glossary
+	return TranslateResult{Lines: result, Terms: terms}, nil
 }

@@ -1,5 +1,5 @@
 // Messages between the content script and the page script (mainWorld.ts), which can read YouTube's player.
-import type { Json3Event } from './captions';
+import type { Json3Event } from '../../domain/captions';
 
 export const TO_PAGE = 'readu-dub:to-page';
 export const TO_CONTENT = 'readu-dub:to-content';

@@ -34,6 +34,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"vtts-backend/dub"
 )
 
 const (
@@ -57,7 +59,7 @@ type server struct {
 	cacheDir   string
 	debugToken string
 	auth       *authService
-	dubs       *dubService
+	dubs       *dub.Service
 }
 
 func main() {
@@ -94,13 +96,7 @@ func main() {
 			client: &http.Client{Timeout: 20 * time.Second},
 		}, db),
 	}
-	var tr translator
-	if t := newChatTranslator(); t != nil {
-		tr = t
-	} else {
-		log.Print("TRANSLATE_BASE_URL or TRANSLATE_API_KEY is not set; dubbing is off")
-	}
-	s.dubs = newDubService(db, tr, s.speak, kokoro.wake)
+	s.dubs = newDubService(db, s.speak, kokoro.wake)
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", handleRoot)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { w.Write([]byte("ok")) })

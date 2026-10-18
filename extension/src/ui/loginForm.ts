@@ -1,56 +1,9 @@
 // Sign-in with an emailed 6-digit code, shared by the toolbar popup and the panel on YouTube.
 // The step the viewer is on lives in chrome.storage, so closing the popup to read the mail loses nothing.
-import { send } from './types';
-
-/** A code was sent to email at sentAt (ms). */
-export interface PendingLogin {
-  email: string;
-  sentAt: number;
-}
-
-/** A code request that failed, possibly while no popup was open to show it. */
-interface LoginError {
-  email: string;
-  message: string;
-  at: number;
-}
-
-/** Codes expire after 10 minutes on the server. */
-const CODE_TTL_MS = 10 * 60 * 1000;
-/** The server allows one code per email per minute. */
-const RESEND_COOLDOWN_MS = 60 * 1000;
-const CODE_LENGTH = 6;
-
-export function loginErrorText(status: number, error: string): string {
-  if (status === 0) return 'Không kết nối được máy chủ.';
-  if (status === 429) return 'Vui lòng đợi một phút rồi gửi lại mã.';
-  if (status === 401) return 'Mã không đúng hoặc đã hết hạn.';
-  if (status === 400) return 'Email không hợp lệ.';
-  return error;
-}
-
-interface Stored {
-  pendingLogin?: PendingLogin;
-  loginError?: LoginError;
-  lastEmail?: string;
-}
-
-async function stored(): Promise<Stored> {
-  return (await chrome.storage.local.get(['pendingLogin', 'loginError', 'lastEmail'])) as Stored;
-}
-
-function h<K extends keyof HTMLElementTagNameMap>(
-  tag: K,
-  props: Partial<HTMLElementTagNameMap[K]> & { class?: string } = {},
-  ...children: (Node | string)[]
-): HTMLElementTagNameMap[K] {
-  const e = document.createElement(tag);
-  const { class: cls, ...rest } = props;
-  if (cls) e.className = cls;
-  Object.assign(e, rest);
-  e.append(...children);
-  return e;
-}
+import { CODE_LENGTH, CODE_TTL_MS, RESEND_COOLDOWN_MS, loginErrorText, type PendingLogin } from '../domain/login';
+import { clearPendingLogin, loadLoginState } from '../adapters/chrome/loginState';
+import { send } from '../adapters/chrome/messages';
+import { h } from './dom';
 
 const backIcon = () => {
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -79,7 +32,7 @@ export class LoginForm {
   constructor(private heading: (step: 'email' | 'code', title: string, text: string) => Node[]) {}
 
   async show() {
-    const { pendingLogin, loginError, lastEmail } = await stored();
+    const { pendingLogin, loginError, lastEmail } = await loadLoginState();
     if (pendingLogin && Date.now() - pendingLogin.sentAt < CODE_TTL_MS) return this.codeStep(pendingLogin);
     const recentError = loginError && Date.now() - loginError.at < CODE_TTL_MS ? loginError : undefined;
     this.emailStep(recentError?.email ?? lastEmail ?? '', recentError?.message ?? '');
@@ -115,7 +68,7 @@ export class LoginForm {
   private codeStep(pending: PendingLogin, sendNow = false) {
     const back = h('button', { type: 'button', class: 'rd-icon-btn rd-plain rl-back', ariaLabel: 'Đổi email' }, backIcon());
     back.addEventListener('click', async () => {
-      await chrome.storage.local.remove('pendingLogin');
+      await clearPendingLogin();
       this.emailStep(pending.email);
     });
     const status = h('p', { class: 'rl-text' }, sendNow ? `Đang gửi mã tới ${pending.email}…` : `Đã gửi mã tới ${pending.email}.`);

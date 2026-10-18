@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { pickTrack, toSegments } from '../src/captions';
-import { playbackRate, segmentAt } from '../src/timing';
+import { pickTrack, toSegments } from '../src/domain/captions';
+import { playbackRate, segmentAt } from '../src/domain/timing';
 
 describe('toSegments', () => {
   it('splits manual cues at sentence ends, joining cues that run on', () => {

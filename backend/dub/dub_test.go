@@ -1,4 +1,4 @@
-package main
+package dub
 
 import (
 	"context"
@@ -11,36 +11,36 @@ import (
 )
 
 func TestDubRequestValidate(t *testing.T) {
-	ok := dubRequest{VideoID: "dQw4w9WgXcQ", Voice: "nope", Segments: []dubSegmentInput{
+	ok := Request{VideoID: "dQw4w9WgXcQ", Title: "  T  ", Segments: []SegmentInput{
 		{Start: 0, End: 1000, Text: "  Hello\n there "},
 		{Start: 1000, End: 2000, Text: "Bye"},
 	}}
-	if err := ok.validate(); err != nil {
+	if err := ok.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	if ok.Segments[0].Text != "Hello there" || ok.Voice != defaultKokoroVoice {
+	if ok.Segments[0].Text != "Hello there" || ok.Title != "T" {
 		t.Fatalf("not cleaned: %+v", ok)
 	}
 
-	bad := []dubRequest{
+	bad := []Request{
 		{VideoID: "short", Segments: ok.Segments},
 		{VideoID: "dQw4w9WgXcQ"},
-		{VideoID: "dQw4w9WgXcQ", Segments: []dubSegmentInput{{Start: 0, End: 1000, Text: " "}}},
-		{VideoID: "dQw4w9WgXcQ", Segments: []dubSegmentInput{{Start: 500, End: 400, Text: "a"}}},
-		{VideoID: "dQw4w9WgXcQ", Segments: []dubSegmentInput{{Start: 500, End: 900, Text: "a"}, {Start: 100, End: 900, Text: "b"}}},
+		{VideoID: "dQw4w9WgXcQ", Segments: []SegmentInput{{Start: 0, End: 1000, Text: " "}}},
+		{VideoID: "dQw4w9WgXcQ", Segments: []SegmentInput{{Start: 500, End: 400, Text: "a"}}},
+		{VideoID: "dQw4w9WgXcQ", Segments: []SegmentInput{{Start: 500, End: 900, Text: "a"}, {Start: 100, End: 900, Text: "b"}}},
 	}
 	for i, r := range bad {
-		if err := r.validate(); err == nil {
+		if err := r.Validate(); err == nil {
 			t.Errorf("case %d: want error", i)
 		}
 	}
 }
 
 // sentences makes n sentences of 3 s each, the first ready of them translated and spoken.
-func sentences(n, ready, translated int) []dubSegment {
-	segs := make([]dubSegment, n)
+func sentences(n, ready, translated int) []Segment {
+	segs := make([]Segment, n)
 	for i := range segs {
-		segs[i] = dubSegment{idx: i, start: i * 3000, end: i*3000 + 2500, translated: i < translated, hasAudio: i < ready}
+		segs[i] = Segment{Idx: i, Start: i * 3000, End: i*3000 + 2500, Translated: i < translated, HasAudio: i < ready}
 	}
 	return segs
 }
@@ -60,7 +60,7 @@ func TestPlanStartsWithASmallBatchAtTheViewer(t *testing.T) {
 func TestPlanSpeaksTwoAndTranslatesAhead(t *testing.T) {
 	segs := sentences(200, 0, 8)
 	p := planWork(segs, 0, 1, newTestJob(), nil)
-	if len(p.speak) != speakConcurrency || p.speak[0] != 0 || p.speak[1] != 1 {
+	if len(p.speak) != SpeakConcurrency || p.speak[0] != 0 || p.speak[1] != 1 {
 		t.Fatalf("speak %v", p.speak)
 	}
 	if p.translate != 8 || p.batch != translateBatch {
@@ -137,12 +137,12 @@ func TestChatTranslatorRetriesAndShortens(t *testing.T) {
 	}))
 	defer api.Close()
 
-	tr := &chatTranslator{baseURL: api.URL + "/v1", apiKey: "k", model: "m", client: api.Client()}
-	res, err := tr.translate(context.Background(), translateRequest{
+	tr := &ChatTranslator{baseURL: api.URL + "/v1", apiKey: "k", model: "m", client: api.Client()}
+	res, err := tr.Translate(context.Background(), TranslateRequest{
 		Title:    "Learn Go",
-		Glossary: []term{{EN: "goroutine", VI: "goroutine"}},
+		Glossary: []Term{{EN: "goroutine", VI: "goroutine"}},
 		Prior:    []string{"Before => Trước"},
-		Lines:    []translateLine{{Text: "Hello", Seconds: 2}, {Text: "Let's count to twelve", Seconds: 1}},
+		Lines:    []Line{{Text: "Hello", Seconds: 2}, {Text: "Let's count to twelve", Seconds: 1}},
 	})
 	if err != nil || res.Lines[0] != "Xin chào" || res.Lines[1] != "ngắn gọn" || len(res.Terms) != 1 {
 		t.Fatalf("got %+v, %v", res, err)
@@ -161,7 +161,7 @@ func TestChatTranslatorRetriesAndShortens(t *testing.T) {
 }
 
 func TestMergeGlossaryKeepsFirstChoice(t *testing.T) {
-	g := mergeGlossary([]term{{EN: "Go", VI: "Go"}}, []term{{EN: "go", VI: "đi"}, {EN: "channel", VI: "kênh"}})
+	g := mergeGlossary([]Term{{EN: "Go", VI: "Go"}}, []Term{{EN: "go", VI: "đi"}, {EN: "channel", VI: "kênh"}})
 	if len(g) != 2 || g[0].VI != "Go" || g[1].EN != "channel" {
 		t.Fatalf("got %+v", g)
 	}
@@ -173,15 +173,20 @@ func TestChatTranslatorSample(t *testing.T) {
 	if os.Getenv("TRANSLATE_LIVE") == "" {
 		t.Skip("set TRANSLATE_LIVE=1 to call the real translation API")
 	}
-	tr := newChatTranslator()
-	if tr == nil {
+	base, key := os.Getenv("TRANSLATE_BASE_URL"), os.Getenv("TRANSLATE_API_KEY")
+	if base == "" || key == "" {
 		t.Fatal("TRANSLATE_BASE_URL and TRANSLATE_API_KEY must be set")
 	}
-	req := translateRequest{Title: "I built a tiny web server in Go (in 20 lines)"}
-	for _, l := range sampleCaptions {
-		req.Lines = append(req.Lines, translateLine{Text: l.text, Seconds: l.seconds})
+	model := os.Getenv("TRANSLATE_MODEL")
+	if model == "" {
+		model = "gpt-6.1-sol"
 	}
-	res, err := tr.translate(context.Background(), req)
+	tr := NewChatTranslator(base, key, model)
+	req := TranslateRequest{Title: "I built a tiny web server in Go (in 20 lines)"}
+	for _, l := range sampleCaptions {
+		req.Lines = append(req.Lines, Line{Text: l.text, Seconds: l.seconds})
+	}
+	res, err := tr.Translate(context.Background(), req)
 	if err != nil {
 		t.Fatal(err)
 	}

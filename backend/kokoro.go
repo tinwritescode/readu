@@ -10,6 +10,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"vtts-backend/dub"
 )
 
 type kokoroClient struct {
@@ -26,7 +28,7 @@ type kokoroRequest struct {
 }
 
 func newKokoroClient() *kokoroClient {
-	return &kokoroClient{url: strings.TrimRight(os.Getenv("KOKORO_WORKER_URL"), "/"), token: os.Getenv("KOKORO_WORKER_TOKEN"), client: &http.Client{Timeout: 95 * time.Second}, sem: make(chan struct{}, speakConcurrency), retryEvery: 2 * time.Second}
+	return &kokoroClient{url: strings.TrimRight(os.Getenv("KOKORO_WORKER_URL"), "/"), token: os.Getenv("KOKORO_WORKER_TOKEN"), client: &http.Client{Timeout: 95 * time.Second}, sem: make(chan struct{}, dub.SpeakConcurrency), retryEvery: 2 * time.Second}
 }
 func (k *kokoroClient) synthesize(ctx context.Context, text, voice string, speed float64) ([]byte, error) {
 	if k == nil || k.url == "" {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isMusicVideo } from '../src/music';
+import { isMusicVideo } from '../src/domain/music';
 
 const talk = Array.from({ length: 60 }, (_, i) => ({ start: i * 3000, end: i * 3000 + 2900, text: 'so today we are going to look at how this works' }));
 
