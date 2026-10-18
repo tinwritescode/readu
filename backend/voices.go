@@ -6,9 +6,9 @@ type voice struct {
 	Gender string `json:"gender"`
 }
 
-// kokoroModelVersion names the model the worker runs; it prefixes cache keys
-// so audio from an older model is never served after an upgrade.
-const kokoroModelVersion = "kokoro-vietnamese-a249afe"
+// kokoroModelVersion names the model and text normalization the worker runs. Keep in sync with
+// MODEL_VERSION in kokoro-worker/app.py; it prefixes cache keys so stale audio is never served.
+const kokoroModelVersion = "kokoro-vietnamese-a249afe-norm1"
 
 const defaultKokoroVoice = "mai_loan"
 

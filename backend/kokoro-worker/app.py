@@ -1,4 +1,4 @@
-import io, os, subprocess, threading
+import io, os, re, subprocess, threading
 from fastapi import FastAPI, Header, HTTPException
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
@@ -6,6 +6,7 @@ import soundfile as sf
 import torch
 from kokoro_vietnamese.core import DEFAULT_HF_REPO_ID, SAMPLE_RATE, _download_or_resolve, resolve_voicepack_filename
 from kokoro_vietnamese.onnx_cli import KokoroVietnameseONNX
+from sea_g2p import Normalizer
 
 app = FastAPI()
 TOKEN = os.environ.get("WORKER_TOKEN", "")
@@ -13,13 +14,20 @@ DEFAULT_VOICE = "mai_loan"
 # Keep in sync with kokoroVoices in ../voices.go. storyvert is left out: its gender is unknown.
 VOICES = ["diem_trinh", "hung_thinh", "mai_linh", "mai_loan", "manh_dung", "my_yen", "ngoc_huyen",
           "phat_tai", "thanh_dat", "thuc_trinh", "tuan_ngoc", "duc_an", "duc_duy"]
-MODEL_VERSION = os.environ.get("MODEL_VERSION", "kokoro-vietnamese-a249afe")
+MODEL_VERSION = os.environ.get("MODEL_VERSION", "kokoro-vietnamese-a249afe-norm1")
 # Loading the model takes seconds and ~1 GB, so it happens once; the lock keeps one inference at a time.
 TTS = KokoroVietnameseONNX(voice=DEFAULT_VOICE)
 # Voicepacks are ~0.5 MB each, so all are kept in memory and swapped per request.
 PACKS = {v: torch.load(_download_or_resolve(DEFAULT_HF_REPO_ID, "", resolve_voicepack_filename(v, None)), map_location="cpu", weights_only=True)
          for v in VOICES}
 LOCK = threading.Lock()
+# vig2p reads digits as nothing, so numbers, dates, times, money and percents are spelled out first
+# ("12/3/2024" -> "mười hai tháng ba năm hai nghìn không trăm hai mươi bốn"). This is the same
+# sea-g2p normalizer the on-device voices use. It wraps foreign words in <en> tags, which are dropped.
+NORMALIZER = Normalizer(lang="vi")
+
+def normalize(text: str) -> str:
+    return re.sub(r"</?en>", "", NORMALIZER.normalize(text))
 
 class Request(BaseModel):
     text: str = Field(min_length=1, max_length=300)
@@ -38,7 +46,7 @@ def synthesize(req: Request, x_worker_token: str | None = Header(default=None)):
     if not LOCK.acquire(timeout=120): raise HTTPException(503, "worker busy")
     try:
         TTS.voicepack = PACKS[req.voice]
-        audio, _ = TTS.synthesize(req.text, speed=req.speed)
+        audio, _ = TTS.synthesize(normalize(req.text), speed=req.speed)
     finally:
         LOCK.release()
     if len(audio) == 0: raise HTTPException(422, "no audio generated")
