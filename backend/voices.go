@@ -8,7 +8,7 @@ type voice struct {
 
 // kokoroModelVersion names the model and text normalization the worker runs. Keep in sync with
 // MODEL_VERSION in kokoro-worker/app.py; it prefixes cache keys so stale audio is never served.
-const kokoroModelVersion = "kokoro-vietnamese-a249afe-norm1"
+const kokoroModelVersion = "kokoro-vietnamese-a249afe-norm2"
 
 const defaultKokoroVoice = "mai_loan"
 

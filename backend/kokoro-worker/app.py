@@ -5,8 +5,10 @@ from pydantic import BaseModel, Field
 import soundfile as sf
 import torch
 from kokoro_vietnamese.core import DEFAULT_HF_REPO_ID, SAMPLE_RATE, _download_or_resolve, resolve_voicepack_filename
+import kokoro_vietnamese.onnx_cli as onnx_cli
 from kokoro_vietnamese.onnx_cli import KokoroVietnameseONNX
 from sea_g2p import Normalizer
+from vig2p.core import WORD_RE, _backend_output_to_text, create_backend, fix_phonemes, phonemize_text, tokenize_text
 
 app = FastAPI()
 TOKEN = os.environ.get("WORKER_TOKEN", "")
@@ -14,7 +16,7 @@ DEFAULT_VOICE = "mai_loan"
 # Keep in sync with kokoroVoices in ../voices.go. storyvert is left out: its gender is unknown.
 VOICES = ["diem_trinh", "hung_thinh", "mai_linh", "mai_loan", "manh_dung", "my_yen", "ngoc_huyen",
           "phat_tai", "thanh_dat", "thuc_trinh", "tuan_ngoc", "duc_an", "duc_duy"]
-MODEL_VERSION = os.environ.get("MODEL_VERSION", "kokoro-vietnamese-a249afe-norm1")
+MODEL_VERSION = os.environ.get("MODEL_VERSION", "kokoro-vietnamese-a249afe-norm2")
 # Loading the model takes seconds and ~1 GB, so it happens once; the lock keeps one inference at a time.
 TTS = KokoroVietnameseONNX(voice=DEFAULT_VOICE)
 # Voicepacks are ~0.5 MB each, so all are kept in memory and swapped per request.
@@ -28,6 +30,33 @@ NORMALIZER = Normalizer(lang="vi")
 
 def normalize(text: str) -> str:
     return re.sub(r"</?en>", "", NORMALIZER.normalize(text))
+
+G2P = create_backend()
+
+def phonemize(text: str) -> str:
+    """vig2p phonemizes word by word, so an unmarked word such as "do", "to" or "in" has no context
+    and is read as English ("do" -> "đu"). sea-g2p picks the Vietnamese reading when it sees the
+    whole sentence, so the words go through it together and each result is then fixed up the way
+    vig2p does. If the word counts do not line up, plain vig2p is used."""
+    tokens = tokenize_text(text)
+    words = [t for t in tokens if WORD_RE.match(t)]
+    raw = _backend_output_to_text(G2P.run(" ".join(words))).split() if words else []
+    if len(raw) != len(words):
+        return phonemize_text(text, backend=G2P)
+    pairs = iter(zip(words, raw))
+    out = []
+    for t in tokens:
+        if t.isspace():
+            out.append(" ")
+        elif WORD_RE.match(t):
+            word, ph = next(pairs)
+            out.append(fix_phonemes(ph, source_text=word))
+        else:
+            out.append(fix_phonemes(t))
+    return "".join(out).strip()
+
+# KokoroVietnameseONNX.synthesize looks phonemize up in its own module.
+onnx_cli.phonemize = phonemize
 
 class Request(BaseModel):
     text: str = Field(min_length=1, max_length=300)
