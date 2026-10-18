@@ -101,8 +101,24 @@ type Account struct {
 	Plan   string
 }
 
-// limited reports whether the plan has a daily limit; paid plans do not.
-func (a Account) limited() bool { return a.Plan == "free" }
+// Unlimited is the daily allowance of a plan with no limit.
+const Unlimited = -1
+
+// Limits holds each plan's daily dub minutes, or Unlimited.
+type Limits map[string]int
+
+// dailyMs is how many ms of dub a plan may listen to per day, or Unlimited. A plan with no entry gets the free
+// plan's allowance, so an unknown plan is never unlimited by mistake.
+func (l Limits) dailyMs(plan string) int {
+	m, ok := l[plan]
+	if !ok {
+		m = l["free"]
+	}
+	if m == Unlimited {
+		return Unlimited
+	}
+	return m * 60_000
+}
 
 // Segment is one stored sentence and whether it has audio in the job's voice.
 type Segment struct {

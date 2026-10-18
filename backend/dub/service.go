@@ -8,33 +8,34 @@ import (
 
 // Service wires the store, the translator, the speech worker and the running jobs.
 type Service struct {
-	store       Store
-	jobs        *jobs
-	freeDailyMs int
-	configured  bool
+	store      Store
+	jobs       *jobs
+	limits     Limits
+	configured bool
 	// wake starts the sleeping speech worker without making it speak.
 	wake func(ctx context.Context) error
 }
 
 // New returns the dub service. A nil translator turns dubbing off; wake may be nil.
-func New(store Store, tr Translator, speak SpeakFunc, wake func(ctx context.Context) error, freeDailyMinutes int) *Service {
-	return &Service{store: store, jobs: newJobs(store, tr, speak), freeDailyMs: freeDailyMinutes * 60_000, configured: tr != nil, wake: wake}
+func New(store Store, tr Translator, speak SpeakFunc, wake func(ctx context.Context) error, limits Limits) *Service {
+	return &Service{store: store, jobs: newJobs(store, tr, speak), limits: limits, configured: tr != nil, wake: wake}
 }
 
 // Configured reports whether a translator is set up.
 func (d *Service) Configured() bool { return d.configured }
 
-// overQuota reports whether a free account has used up today's minutes.
+// overQuota reports whether an account on a limited plan has used up today's minutes.
 func (d *Service) overQuota(ctx context.Context, acc Account) (bool, error) {
-	if !acc.limited() {
+	limit := d.limits.dailyMs(acc.Plan)
+	if limit == Unlimited {
 		return false, nil
 	}
 	used, err := d.store.UsedTodayMs(ctx, acc.UserID)
-	return used >= d.freeDailyMs, err
+	return used >= limit, err
 }
 
 // Create finds or makes the dub for a validated request and starts work at the viewer's position. It returns
-// ErrQuotaExceeded when a free account has no minutes left today.
+// ErrQuotaExceeded when the account has no minutes left today.
 func (d *Service) Create(ctx context.Context, acc Account, req *Request) (int64, error) {
 	id, err := d.store.Upsert(ctx, req)
 	if err != nil {
@@ -82,15 +83,15 @@ func (d *Service) Status(ctx context.Context, dubID int64, voice string) (Status
 }
 
 // Listen returns a sentence's audio and counts it as listened to. It returns ErrNotReady before the audio is
-// made and ErrQuotaExceeded when a free account has no minutes left today.
+// made and ErrQuotaExceeded when the account has no minutes left today.
 func (d *Service) Listen(ctx context.Context, acc Account, dubID int64, idx int, voice string) ([]byte, error) {
 	audio, err := d.store.Audio(ctx, dubID, idx, voice)
 	if err != nil {
 		return nil, err
 	}
-	// Fetching a sentence's audio is what counts as listening to it. Paid plans are not limited.
-	if acc.limited() {
-		if err := d.store.ChargeListen(ctx, acc.UserID, dubID, idx, d.freeDailyMs); err != nil {
+	// Fetching a sentence's audio is what counts as listening to it. Unlimited plans are not counted.
+	if limit := d.limits.dailyMs(acc.Plan); limit != Unlimited {
+		if err := d.store.ChargeListen(ctx, acc.UserID, dubID, idx, limit); err != nil {
 			return nil, err
 		}
 	}
@@ -103,9 +104,9 @@ func (d *Service) Quota(ctx context.Context, acc Account) (usedSeconds, limitSec
 	if err != nil {
 		return 0, 0, err
 	}
-	limit := d.freeDailyMs / 1000
-	if !acc.limited() {
-		limit = -1 // unlimited
+	limit := d.limits.dailyMs(acc.Plan)
+	if limit != Unlimited {
+		limit /= 1000
 	}
 	return used / 1000, limit, nil
 }

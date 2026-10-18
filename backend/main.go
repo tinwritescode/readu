@@ -15,6 +15,7 @@
 //	TRANSLATE_API_KEY  key for TRANSLATE_BASE_URL
 //	TRANSLATE_MODEL    translation model (default gpt-6.1-sol)
 //	DUB_FREE_DAILY_MINUTES minutes of dub a free account may listen to per day (default 30)
+//	DUB_PREMIUM_DAILY_MINUTES the same for the premium plan (default 300); max is unlimited
 //	PORT               listen port (default 8080)
 package main
 
@@ -112,6 +113,7 @@ func main() {
 	mux.HandleFunc("GET /v1/dubs/quota", s.handleDubQuota)
 	mux.HandleFunc("GET /v1/dubs/{id}", s.handleDubStatus)
 	mux.HandleFunc("GET /v1/dubs/{id}/audio/{idx}", s.handleDubAudio)
+	mux.HandleFunc("POST /v1/admin/plan", s.handleSetPlan)
 	mux.HandleFunc("GET /v1/debug/cache", s.handleDebugList)
 	mux.HandleFunc("DELETE /v1/debug/cache", s.handleDebugClear)
 	mux.HandleFunc("DELETE /v1/debug/cache/{key}", s.handleDebugDeleteOne)
