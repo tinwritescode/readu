@@ -11,6 +11,10 @@
 //	CACHE_DIR          where synthesized chunks are kept (default ./cache)
 //	DEBUG_TOKEN        enables /v1/debug/cache when set; requests need it as a bearer token
 //	CORS_ORIGINS       comma-separated browser origins allowed to call the API (optional)
+//	TRANSLATE_BASE_URL OpenAI-compatible API used to translate YouTube captions; dubbing is off without it
+//	TRANSLATE_API_KEY  key for TRANSLATE_BASE_URL
+//	TRANSLATE_MODEL    translation model (default gpt-6.1-sol)
+//	DUB_FREE_DAILY_VIDEOS how many videos a free account may dub per day (default 10)
 //	PORT               listen port (default 8080)
 package main
 
@@ -53,6 +57,7 @@ type server struct {
 	cacheDir   string
 	debugToken string
 	auth       *authService
+	dubs       *dubService
 }
 
 func main() {
@@ -89,6 +94,13 @@ func main() {
 			client: &http.Client{Timeout: 20 * time.Second},
 		}, db),
 	}
+	var tr translator
+	if t := newChatTranslator(); t != nil {
+		tr = t
+	} else {
+		log.Print("TRANSLATE_BASE_URL or TRANSLATE_API_KEY is not set; dubbing is off")
+	}
+	s.dubs = newDubService(db, tr, s.speak)
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", handleRoot)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { w.Write([]byte("ok")) })
@@ -100,6 +112,10 @@ func main() {
 	mux.HandleFunc("DELETE /v1/auth/session", s.handleLogout)
 	mux.HandleFunc("GET /v1/me", s.handleMe)
 	mux.HandleFunc("POST /v1/speech", s.handleSpeech)
+	mux.HandleFunc("POST /v1/dubs", s.handleCreateDub)
+	mux.HandleFunc("GET /v1/dubs/quota", s.handleDubQuota)
+	mux.HandleFunc("GET /v1/dubs/{id}", s.handleDubStatus)
+	mux.HandleFunc("GET /v1/dubs/{id}/audio/{idx}", s.handleDubAudio)
 	mux.HandleFunc("GET /v1/debug/cache", s.handleDebugList)
 	mux.HandleFunc("DELETE /v1/debug/cache", s.handleDebugClear)
 	mux.HandleFunc("DELETE /v1/debug/cache/{key}", s.handleDebugDeleteOne)
@@ -151,6 +167,19 @@ func (s *server) handleSpeech(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "audio/mpeg")
 	w.Header().Set("Content-Length", strconv.Itoa(out.Len()))
 	w.Write(out.Bytes())
+}
+
+// speak turns text of any length into MP3, through the same chunk cache as /v1/speech.
+func (s *server) speak(ctx context.Context, text, voice string) ([]byte, error) {
+	var out bytes.Buffer
+	for _, chunk := range splitText(text, chunkMaxChars) {
+		audio, err := s.chunkAudio(ctx, chunk, voice, dubSpeed)
+		if err != nil {
+			return nil, err
+		}
+		out.Write(audio)
+	}
+	return out.Bytes(), nil
 }
 
 func (s *server) handleVoices(w http.ResponseWriter, r *http.Request) {
