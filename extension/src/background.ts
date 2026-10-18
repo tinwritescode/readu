@@ -3,8 +3,18 @@
 import { ApiError } from './adapters/api/client';
 import type { Reply, Request, Responses } from './adapters/chrome/messages';
 import { handleRequest } from './app/handleRequest';
+import type { InstallProgress } from './domain/types';
 
-chrome.runtime.onMessage.addListener((req: Request, _sender, sendResponse: (r: Reply<Responses[keyof Responses]>) => void) => {
+/** Sent by the offscreen document while it downloads the voice. */
+type OffscreenNote = { type: 'kokoroProgress'; progress: InstallProgress } | { target: string };
+
+chrome.runtime.onMessage.addListener((req: Request | OffscreenNote, _sender, sendResponse: (r: Reply<Responses[keyof Responses]>) => void) => {
+  // Requests for the offscreen document are answered there; its progress notes are kept for every tab to see.
+  if ('target' in req) return false;
+  if (req.type === 'kokoroProgress') {
+    void chrome.storage.local.set({ kokoroInstall: req.progress });
+    return false;
+  }
   handleRequest(req).then(
     data => sendResponse({ ok: true, data: data as never }),
     (e: unknown) =>

@@ -28,6 +28,8 @@
   scrollbar-width: thin;
 }
 .rdub-panel.rdub-open { display: flex; flex-direction: column; gap: 12px; }
+/* Sections keep their height and the panel scrolls, instead of squeezing the voice chips on a short player. */
+.rdub-panel.rdub-open > * { flex-shrink: 0; }
 .rdub-head { display: flex; align-items: center; gap: 8px; margin-right: -8px; }
 .rdub-title { flex: 1; font-size: 17px; font-weight: 700; }
 .rdub-sub { margin-top: -8px; }
@@ -58,3 +60,8 @@
 /* While the video waits for the dub: progress and a way to watch without waiting. */
 .rdub-overlay .rd-bar { width: 220px; margin: 8px auto 2px; }
 .rdub-overlay .rdub-watch-now { pointer-events: auto; min-height: 28px; font-size: 13px; }
+
+/* Where the dub is made: three choices side by side, and the voice download. */
+.rdub-readon { gap: 10px; }
+.rdub-segmented { display: flex; gap: 6px; }
+.rdub-segmented .rd-chip { flex: 1; min-height: 34px; padding: 0 10px; font-size: 13px; }

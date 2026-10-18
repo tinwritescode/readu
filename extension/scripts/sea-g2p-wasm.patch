@@ -1,0 +1,193 @@
+diff --color -ruN -x t a/Cargo.toml b/Cargo.toml
+--- a/Cargo.toml	2006-07-24 08:21:28
++++ b/Cargo.toml	2026-10-18 23:09:49
+@@ -16,15 +16,20 @@
+ # PyO3 entirely so the library has no Python runtime to find:
+ #   cargo build --release --no-default-features --features capi
+ capi = []
++# A WebAssembly module for browsers, built with wasm-pack. The host passes the dictionary's bytes in.
++wasm = ["dep:wasm-bindgen"]
+ 
+ [dependencies]
+ pyo3 = { version = "0.23", features = ["extension-module", "abi3-py310", "generate-import-lib"], optional = true }
+ regex = "1.10"
+ fancy-regex = "0.13"
+ once_cell = "1.19"
+-memmap2 = "0.9"
+ rayon = "1.10"
+ unicode-normalization = "0.1"
++wasm-bindgen = { version = "0.2", optional = true }
++
++[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
++memmap2 = "0.9"
+ 
+ [build-dependencies]
+ pyo3-build-config = { version = "0.23", optional = true }
+diff --color -ruN -x t a/src/core/dict.rs b/src/core/dict.rs
+--- a/src/core/dict.rs	2006-07-24 08:21:28
++++ b/src/core/dict.rs	2026-10-18 23:09:49
+@@ -16,10 +16,30 @@
+ //!
+ //! The mmap is never modified; `scripts/seap.py` is the writer.
+ 
++#[cfg(not(target_arch = "wasm32"))]
+ use memmap2::Mmap;
++#[cfg(not(target_arch = "wasm32"))]
+ use std::fs::File;
+ use std::io;
+ 
++/// The dictionary's bytes: a mapped file, or bytes the host handed over (WebAssembly has no files).
++enum Bytes {
++    #[cfg(not(target_arch = "wasm32"))]
++    Mapped(Mmap),
++    Static(&'static [u8]),
++}
++
++impl std::ops::Deref for Bytes {
++    type Target = [u8];
++    fn deref(&self) -> &[u8] {
++        match self {
++            #[cfg(not(target_arch = "wasm32"))]
++            Bytes::Mapped(m) => m,
++            Bytes::Static(s) => s,
++        }
++    }
++}
++
+ /// Section kinds for version-2 language tables.
+ pub const SECTION_TH: u32 = 3;
+ /// Thai word frequencies (value is the count as a decimal string). Feeds the
+@@ -32,7 +52,7 @@
+ pub const SECTION_ID: u32 = 5;
+ 
+ pub struct PhonemeDict {
+-    mmap: Mmap,
++    mmap: Bytes,
+     string_count: u32,
+     merged_count: u32,
+     common_count: u32,
+@@ -47,8 +67,24 @@
+ 
+ impl PhonemeDict {
+     pub fn new(path: &str) -> io::Result<Self> {
+-        let file = File::open(path)?;
+-        let mmap = unsafe { Mmap::map(&file)? };
++        #[cfg(not(target_arch = "wasm32"))]
++        {
++            let file = File::open(path)?;
++            Self::parse(Bytes::Mapped(unsafe { Mmap::map(&file)? }))
++        }
++        #[cfg(target_arch = "wasm32")]
++        {
++            let _ = path;
++            Err(io::Error::new(io::ErrorKind::Unsupported, "no files in WebAssembly; use PhonemeDict::from_static"))
++        }
++    }
++
++    /// A dictionary over bytes that live for the rest of the program.
++    pub fn from_static(bytes: &'static [u8]) -> io::Result<Self> {
++        Self::parse(Bytes::Static(bytes))
++    }
++
++    fn parse(mmap: Bytes) -> io::Result<Self> {
+ 
+         if mmap.len() < 32 || &mmap[0..4] != b"SEAP" {
+             return Err(io::Error::new(io::ErrorKind::InvalidData, "Invalid dictionary format"));
+diff --color -ruN -x t a/src/g2p/mod.rs b/src/g2p/mod.rs
+--- a/src/g2p/mod.rs	2006-07-24 08:21:28
++++ b/src/g2p/mod.rs	2026-10-18 23:09:49
+@@ -118,14 +118,18 @@
+ 
+ impl G2PEngine {
+     pub fn new(dict_path: &str) -> io::Result<Self> {
+-        Ok(Self {
+-            dict: PhonemeDict::new(dict_path)?,
++        Ok(Self::from_dict(PhonemeDict::new(dict_path)?))
++    }
++
++    pub fn from_dict(dict: PhonemeDict) -> Self {
++        Self {
++            dict,
+             merged_cache: RwLock::new(HashMap::with_capacity(2048)),
+             common_cache: RwLock::new(HashMap::with_capacity(1024)),
+             missing_merged: RwLock::new(std::collections::HashSet::new()),
+             missing_common: RwLock::new(std::collections::HashSet::new()),
+             segmentation_cache: RwLock::new(HashMap::with_capacity(512)),
+-        })
++        }
+     }
+ 
+     fn cached_lookup_merged(&self, word: &str) -> Option<String> {
+diff --color -ruN -x t a/src/lang/vi/technical.rs b/src/lang/vi/technical.rs
+--- a/src/lang/vi/technical.rs	2006-07-24 08:21:28
++++ b/src/lang/vi/technical.rs	2026-10-18 23:09:49
+@@ -40,6 +40,14 @@
+ // a path or email token whole or split it into syllables.
+ static NORM_DICT: OnceLock<PhonemeDict> = OnceLock::new();
+ 
++/// Like [`init_norm_dict`], over bytes the host handed over.
++pub fn init_norm_dict_static(bytes: &'static [u8]) {
++    if NORM_DICT.get().is_some() { return; }
++    if let Ok(d) = PhonemeDict::from_static(bytes) {
++        let _ = NORM_DICT.set(d);
++    }
++}
++
+ pub fn init_norm_dict(path: &str) {
+     if NORM_DICT.get().is_some() { return; }
+     if let Ok(d) = PhonemeDict::new(path) {
+diff --color -ruN -x t a/src/lib.rs b/src/lib.rs
+--- a/src/lib.rs	2006-07-24 08:21:28
++++ b/src/lib.rs	2026-10-18 23:09:49
+@@ -31,6 +31,8 @@
+ 
+ #[cfg(feature = "capi")]
+ pub mod capi;
++#[cfg(feature = "wasm")]
++pub mod wasm;
+ pub mod core;
+ pub mod g2p;
+ pub mod lang;
+diff --color -ruN -x t a/src/wasm.rs b/src/wasm.rs
+--- a/src/wasm.rs	1970-01-01 08:00:00
++++ b/src/wasm.rs	2026-10-18 23:09:49
+@@ -0,0 +1,39 @@
++//! WebAssembly surface for browsers: the same two stages as the C ABI, with the
++//! dictionary passed in as bytes because a browser has no files to map.
++
++use wasm_bindgen::prelude::*;
++
++use crate::core::dict::PhonemeDict;
++use crate::g2p::G2PEngine;
++use crate::lang::vi::Normalizer;
++
++#[wasm_bindgen]
++pub struct SeaG2p {
++    normalizer: Normalizer,
++    engine: G2PEngine,
++}
++
++#[wasm_bindgen]
++impl SeaG2p {
++    /// Takes the bytes of `sea_g2p.bin`. They are kept for the life of the page and shared by both stages.
++    #[wasm_bindgen(constructor)]
++    pub fn new(dict: Vec<u8>) -> Result<SeaG2p, JsError> {
++        let bytes: &'static [u8] = Box::leak(dict.into_boxed_slice());
++        crate::lang::vi::technical::init_norm_dict_static(bytes);
++        let engine = G2PEngine::from_dict(PhonemeDict::from_static(bytes)?);
++        Ok(SeaG2p { normalizer: Normalizer::new("vi", None), engine })
++    }
++
++    /// Text to phonemes: normalise, then phonemise.
++    pub fn phonemize(&self, text: &str, punc_norm: bool) -> String {
++        if text.is_empty() {
++            return String::new();
++        }
++        self.engine.phonemize(&self.normalizer.normalize(text, punc_norm))
++    }
++
++    /// Normalisation alone.
++    pub fn normalize(&self, text: &str, punc_norm: bool) -> String {
++        self.normalizer.normalize(text, punc_norm)
++    }
++}

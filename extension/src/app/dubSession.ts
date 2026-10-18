@@ -1,11 +1,10 @@
 // One dubbing session for one video: asks the backend for the dub, polls it, and plays each Vietnamese sentence
 // in time with the video.
 import { OriginalVolume } from '../adapters/audio/originalVolume';
-import { base64ToBuffer } from '../adapters/chrome/base64';
-import { send } from '../adapters/chrome/messages';
 import { RESUME_BUFFER_MS, START_BUFFER_MS, readyAheadMs } from '../domain/buffering';
 import { LATE_START_MS, playbackRate, segmentAt, slotMs } from '../domain/timing';
-import type { DubStatus, Segment, Settings } from '../domain/types';
+import type { Segment, Settings } from '../domain/types';
+import type { DubProgress, DubSource } from './dubSource';
 
 const POLL_MS = 2000;
 /** Polls come faster while the video waits for the dub, so it plays again soon after enough is ready. */
@@ -29,7 +28,7 @@ export class Dub {
   private original: OriginalVolume;
   private buffers = new Map<number, AudioBuffer | 'loading' | 'error'>();
   private loading = 0;
-  private status: DubStatus | null = null;
+  private status: DubProgress | null = null;
   private ready = new Set<number>();
   private failed = new Set<number>();
   private playing: { idx: number; source: AudioBufferSourceNode; duration: number; slot: number } | null = null;
@@ -56,7 +55,7 @@ export class Dub {
   /** playing: the video was playing when dubbing was turned on, and was paused to wait for the dub. */
   constructor(
     private video: HTMLVideoElement,
-    private info: { id: string; title: string; description: string },
+    private source: DubSource,
     private segments: Segment[],
     private settings: Settings,
     private onUpdate: (dub: Dub) => void,
@@ -104,16 +103,7 @@ export class Dub {
   }
 
   async start() {
-    const res = await send({
-      type: 'createDub',
-      videoId: this.info.id,
-      title: this.info.title,
-      description: this.info.description,
-      voice: this.settings.voice,
-      position: this.video.currentTime * 1000,
-      rate: this.video.playbackRate,
-      segments: this.segments,
-    });
+    const res = await this.source.start(this.video.currentTime * 1000, this.video.playbackRate);
     if (this.stopped) return;
     if (!res.ok) {
       this.fail(res.status, res.error);
@@ -126,6 +116,7 @@ export class Dub {
 
   stop() {
     this.stopped = true;
+    this.source.stop();
     clearInterval(this.tickTimer);
     clearTimeout(this.pollTimer);
     this.stopSource();
@@ -157,21 +148,17 @@ export class Dub {
           ? 'Hãy đăng nhập trong biểu tượng Readu Dub trên thanh công cụ.'
           : status === 503 || status === 404
             ? 'Máy chủ chưa bật tính năng lồng tiếng (cần deploy backend bản mới).'
-            : `Lỗi máy chủ: ${error}`;
+            : status === 0
+              ? error
+              : `Lỗi máy chủ: ${error}`;
     }
     this.onUpdate(this);
   }
 
   private schedulePoll() {
-    if (this.stopped || this.status?.stage === 'done') return;
+    if (this.stopped || this.status?.done) return;
     this.pollTimer = window.setTimeout(async () => {
-      const res = await send({
-        type: 'dubStatus',
-        id: this.status!.id,
-        voice: this.settings.voice,
-        position: this.video.currentTime * 1000,
-        rate: this.video.playbackRate,
-      });
+      const res = await this.source.poll(this.video.currentTime * 1000, this.video.playbackRate);
       if (this.stopped) return;
       if (res.ok) this.apply(res.data);
       else if (res.status === 401) return this.fail(401, res.error);
@@ -179,15 +166,21 @@ export class Dub {
     }, this.waitFor === null ? POLL_MS : WAIT_POLL_MS);
   }
 
-  private apply(st: DubStatus) {
+  /** What the source is doing while the video waits, if it says. */
+  get note(): string | undefined {
+    return this.status?.note;
+  }
+
+  private apply(st: DubProgress) {
+    if (st.fatal) return this.fail(0, st.fatal);
     this.status = st;
     this.ready = new Set(st.ready);
     this.failed = new Set(st.failed);
-    if (st.stage === 'error' && st.ready.length === 0) this.error = st.error ?? '';
+    if (st.error) this.error = st.error;
     this.onUpdate(this);
   }
 
-  /** Dub ready ahead of the video: sentences with audio on the server, or that failed and stay silent. */
+  /** Dub ready ahead of the video: sentences with audio, or that failed and stay silent. */
   private readyAhead(): number {
     return readyAheadMs(this.segments, this.video.currentTime * 1000, i => this.ready.has(i) || this.failed.has(i));
   }
@@ -256,7 +249,8 @@ export class Dub {
     if (this.buffers.has(idx) || this.loading >= 3 || !this.ready.has(idx) || !this.status) return;
     this.buffers.set(idx, 'loading');
     this.loading++;
-    void send({ type: 'dubAudio', id: this.status.id, idx, voice: this.settings.voice })
+    void this.source
+      .audio(idx)
       .then(async res => {
         if (!res.ok && res.status === 402) {
           // Today's minutes ran out mid-video: stop asking and say so.
@@ -265,7 +259,7 @@ export class Dub {
           return this.fail(402, res.error);
         }
         if (!res.ok) throw new Error(res.error);
-        this.buffers.set(idx, await this.ctx.decodeAudioData(base64ToBuffer(res.data)));
+        this.buffers.set(idx, await this.ctx.decodeAudioData(res.data));
       })
       .catch(() => this.buffers.set(idx, 'error'))
       .finally(() => this.loading--);
