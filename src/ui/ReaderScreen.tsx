@@ -29,9 +29,10 @@ interface Props {
   onFontSize: (size: number) => void;
   onBack: () => void;
   onOpenVoices: () => void;
+  onLogout: () => void;
 }
 
-export function ReaderScreen({ entry, player, speed, fontSize, onFontSize, onBack, onOpenVoices }: Props) {
+export function ReaderScreen({ entry, player, speed, fontSize, onFontSize, onBack, onOpenVoices, onLogout }: Props) {
   const insets = useSafeAreaInsets();
   const list = useRef<FlatList<TextRange>>(null);
   const [following, setFollowing] = useState(true);
@@ -99,7 +100,6 @@ export function ReaderScreen({ entry, player, speed, fontSize, onFontSize, onBac
             block={item}
             sentences={sentences}
             current={current}
-            highlight={highlight}
             style={{ fontSize, lineHeight }}
             onSentence={offset => {
               setFollowing(true);
@@ -129,6 +129,10 @@ export function ReaderScreen({ entry, player, speed, fontSize, onFontSize, onBac
           entry={entry}
           at={highlight?.start ?? entry.position}
           speed={speed}
+          snap={fraction => {
+            const sentence = sentences[sentenceIndexAt(sentences, Math.floor(fraction * entry.text.length))];
+            return sentence ? sentence.start / entry.text.length : fraction;
+          }}
           onSeek={fraction => {
             const index = sentenceIndexAt(sentences, Math.floor(fraction * entry.text.length));
             setFollowing(true);
@@ -160,8 +164,7 @@ export function ReaderScreen({ entry, player, speed, fontSize, onFontSize, onBac
             <Pressable
               testID="play-pause"
               accessibilityLabel={player.status === 'speaking' ? 'Pause' : 'Play'}
-              disabled={!player.voice}
-              style={({ pressed }) => [styles.play, !player.voice && styles.disabled, pressed && styles.pressed]}
+              style={({ pressed }) => [styles.play, pressed && styles.pressed]}
               onPress={() => {
                 setFollowing(true);
                 player.toggle();
@@ -188,7 +191,7 @@ export function ReaderScreen({ entry, player, speed, fontSize, onFontSize, onBac
                 {player.voice ? player.voice.name : 'Voice'}
               </Text>
             </Pressable>
-            <Pressable testID="more" accessibilityLabel="More options" hitSlop={10} onPress={showMoreMenu}>
+            <Pressable testID="more" accessibilityLabel="More options" hitSlop={10} onPress={() => showMoreMenu(onLogout)}>
               <MoreIcon size={14} color={colors.text} />
             </Pressable>
           </View>
@@ -203,11 +206,10 @@ function Block(props: {
   block: TextRange;
   sentences: TextRange[];
   current: number;
-  highlight: TextRange | null;
   style: { fontSize: number; lineHeight: number };
   onSentence: (offset: number) => void;
 }) {
-  const { text, block, sentences, current, highlight } = props;
+  const { text, block, sentences, current } = props;
   const first = sentenceIndexAt(sentences, block.start);
   const last = sentenceIndexAt(sentences, block.end - 1);
   const parts: React.ReactNode[] = [];
@@ -216,38 +218,29 @@ function Block(props: {
     const s = sentences[i];
     if (i > first) parts.push(text.slice(sentences[i - 1].end, s.start));
     const onPress = () => props.onSentence(s.start);
-
-    if (i === current && highlight) {
-      const w0 = Math.max(s.start, Math.min(highlight.start, s.end));
-      const w1 = Math.max(w0, Math.min(highlight.end, s.end));
-      parts.push(
-        <Text key={i} style={styles.sentence} onPress={onPress}>
-          {text.slice(s.start, w0)}
-          {w1 > w0 ? (
-            <Text style={styles.word} testID="reader-current-word">
-              {text.slice(w0, w1)}
-            </Text>
-          ) : null}
-          {text.slice(w1, s.end)}
-        </Text>,
-      );
-    } else {
-      parts.push(
-        <Text key={i} style={current >= 0 && i < current ? styles.read : undefined} onPress={onPress}>
-          {text.slice(s.start, s.end)}
-        </Text>,
-      );
-    }
+    const style = i === current ? styles.sentence : current >= 0 && i < current ? styles.read : undefined;
+    parts.push(
+      <Text key={i} style={style} onPress={onPress}>
+        {text.slice(s.start, s.end)}
+      </Text>,
+    );
   }
 
   return <Text style={[styles.body, props.style]}>{parts}</Text>;
 }
 
-function Scrubber(props: { entry: LibraryEntry; at: number; speed: number; onSeek: (fraction: number) => void }) {
+/** While dragging, the thumb sits on the sentence the release will jump to. */
+function Scrubber(props: {
+  entry: LibraryEntry;
+  at: number;
+  speed: number;
+  snap: (fraction: number) => number;
+  onSeek: (fraction: number) => void;
+}) {
   const width = useRef(1);
   const [drag, setDrag] = useState<number | null>(null);
   const length = props.entry.text.length || 1;
-  const fraction = drag ?? props.at / length;
+  const fraction = drag === null ? props.at / length : props.snap(drag);
   const total = minutesFor(length, props.speed);
   const toFraction = (x: number) => Math.max(0, Math.min(1, x / width.current));
 
@@ -324,13 +317,16 @@ const COMING_LATER = [
   { label: 'Pronunciation dictionary', module: 'features/pronunciation/PronunciationDictionary.ts' },
 ];
 
-function showMoreMenu() {
+function showMoreMenu(onLogout: () => void) {
+  const options = [...COMING_LATER.map(c => `${c.label} (coming soon)`), 'Log out', 'Cancel'];
   ActionSheetIOS.showActionSheetWithOptions(
     {
-      options: [...COMING_LATER.map(c => `${c.label} (coming soon)`), 'Cancel'],
-      cancelButtonIndex: COMING_LATER.length,
+      options,
+      cancelButtonIndex: options.length - 1,
+      destructiveButtonIndex: options.length - 2,
     },
     index => {
+      if (index === COMING_LATER.length) return onLogout();
       const item = COMING_LATER[index];
       if (item) Alert.alert(item.label, `Under construction. See src/${item.module}.`);
     },
@@ -353,7 +349,6 @@ const styles = StyleSheet.create({
   body: { fontFamily: fonts.read, color: colors.reading, marginBottom: 18 },
   read: { color: colors.read },
   sentence: { backgroundColor: colors.sentenceHighlight },
-  word: { backgroundColor: colors.wordHighlight, fontFamily: fonts.readSemiBold },
   error: { color: colors.danger, paddingHorizontal: 20, paddingVertical: 6, textAlign: 'center' },
   dock: {
     borderTopWidth: 1.5,

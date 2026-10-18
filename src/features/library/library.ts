@@ -13,7 +13,10 @@ export type LibraryAction =
   | { type: 'position'; id: string; position: number }
   | { type: 'settings'; patch: Partial<ReaderSettings> };
 
-export const DEFAULT_SETTINGS: ReaderSettings = { voiceByLanguage: {}, speed: 1, fontSize: 19 };
+/** Vbee voice for new installs, a Vietnamese female voice for children's stories. */
+export const DEFAULT_VOICE_ID = 's_hochiminh_female_hanhanvani_children_vc';
+
+export const DEFAULT_SETTINGS: ReaderSettings = { voiceId: DEFAULT_VOICE_ID, speed: 1, fontSize: 19 };
 
 export function libraryReducer(state: LibraryState, action: LibraryAction): LibraryState {
   const update = (id: string, patch: Partial<LibraryEntry>) => ({

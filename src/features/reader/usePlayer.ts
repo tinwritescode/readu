@@ -1,62 +1,124 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
+import type { SentenceAudio } from '../../adapters/speech/audioCache';
+import { ApiError } from '../../adapters/speech/backend';
+import { Reader, type PlaybackStatus } from '../../adapters/speech/playback';
 import type { LibraryEntry, TextRange, Voice } from '../../domain/types';
-import type { SpeechEngine } from '../../adapters/speech/SpeechEngine';
 import type { LibraryAction, LibraryState } from '../library/library';
-import { resolveVoice } from '../voices/voices';
 import { sentenceIndexAt, splitSentences } from './textRanges';
-import { useReadAloud } from './useReadAloud';
+
+/** The server's speed limit; the reader offers up to 2×, which plays at this. */
+const MAX_SERVER_SPEED = 1.9;
+
+/** A short sentence in the voice's language, for the voice picker's preview. */
+export const PREVIEW_TEXT = 'Xin chào, đây là giọng đọc của tôi.';
 
 /**
  * The one playback session of the app. It outlives the reader screen so the
  * library's mini player can pause or resume the document being read, and it
- * writes the reading position back into the library as words are spoken.
+ * writes the reading position back into the library as sentences are spoken.
  */
 export function usePlayer(
-  engine: SpeechEngine,
+  audio: SentenceAudio,
   voices: Voice[],
   library: LibraryState,
   dispatch: (action: LibraryAction) => void,
+  onSessionLost: () => void,
 ) {
   const [currentId, setCurrentId] = useState<string | null>(null);
   const [sleepAt, setSleepAt] = useState<number | null>(null);
+  const [status, setStatus] = useState<PlaybackStatus>('idle');
+  const [spoken, setSpoken] = useState<number | null>(null);
+  const [previewId, setPreviewId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
   const entry = library.entries.find(e => e.id === currentId) ?? null;
   const { settings } = library;
-
-  const reader = useReadAloud(engine, {
-    onFinish: () => {
-      if (entry) dispatch({ type: 'position', id: entry.id, position: entry.text.length });
-      setSleepAt(null);
-    },
-  });
-
   const sentences = useMemo(() => (entry ? splitSentences(entry.text) : []), [entry?.text]); // eslint-disable-line react-hooks/exhaustive-deps
-  const language = entry?.language ?? 'en';
-  const voice = resolveVoice(voices, language, settings.voiceByLanguage);
 
-  useEffect(() => {
-    if (!reader.word || !currentId) return;
-    dispatch({ type: 'position', id: currentId, position: reader.word.start });
-    if (sleepAt !== null && Date.now() >= sleepAt) {
-      reader.pause();
-      setSleepAt(null);
+  // The reader is created once, so its callbacks read the latest values here.
+  const latest = useRef({ entry, sentences, sleepAt, dispatch, onSessionLost });
+  latest.current = { entry, sentences, sleepAt, dispatch, onSessionLost };
+
+  const fail = (e: unknown) => {
+    if (e instanceof ApiError && e.status === 401) {
+      latest.current.onSessionLost();
+      return;
     }
-  }, [reader.word]); // eslint-disable-line react-hooks/exhaustive-deps
+    setError(e instanceof Error ? e.message : String(e));
+  };
 
-  const speakFrom = (
-    target: LibraryEntry,
-    offset: number,
-    next = {
-      voice: resolveVoice(voices, target.language ?? 'en', settings.voiceByLanguage),
-      speed: settings.speed,
-    },
-  ) => reader.play(target.text, { voiceId: next.voice?.id, speed: next.speed }, offset);
+  const [reader] = useState(
+    () =>
+      new Reader(audio, {
+        onStatus: (next, silent) => {
+          if (silent) {
+            if (next === 'idle') setPreviewId(null);
+            return;
+          }
+          setStatus(next);
+          if (next === 'idle') setSpoken(null);
+        },
+        onSentence: index => {
+          setSpoken(index);
+          const { entry: current, sentences: list, sleepAt: due, dispatch: send } = latest.current;
+          if (!current || !list[index]) return;
+          send({ type: 'position', id: current.id, position: list[index].start });
+          if (due !== null && Date.now() >= due) {
+            reader.pause();
+            setSleepAt(null);
+          }
+        },
+        onFinish: () => {
+          const { entry: current, dispatch: send } = latest.current;
+          if (current) send({ type: 'position', id: current.id, position: current.text.length });
+          setSleepAt(null);
+        },
+        onError: e => fail(e),
+      }),
+  );
 
-  /** Where playback continues: the start of the sentence the reader stopped in. */
+  const voiceId = settings.voiceId;
+  const voice = voices.find(v => v.id === voiceId);
+  const serverSpeed = (speed: number) => Math.min(speed, MAX_SERVER_SPEED);
+
+  const run = (promise: Promise<void>) => {
+    promise.catch(fail);
+  };
+
+  /** Where playback continues: the sentence the reader stopped in. */
   const resumeOffset = (target: LibraryEntry) => {
     if (target.position >= target.text.length) return 0;
     const list = target.id === entry?.id ? sentences : splitSentences(target.text);
-    return list.length ? Math.min(list[sentenceIndexAt(list, target.position)].start, target.position) : 0;
+    return list.length ? list[sentenceIndexAt(list, target.position)].start : 0;
   };
+
+  /** Starts reading `target` at the sentence containing `offset`. */
+  const readFrom = (
+    target: LibraryEntry,
+    offset: number,
+    speed = settings.speed,
+    voiceFor = voiceId,
+  ) => {
+    setError(null);
+    setPreviewId(null);
+    const list = target.id === entry?.id ? sentences : splitSentences(target.text);
+    run(
+      reader.play(
+        {
+          title: target.title,
+          texts: list.map(s => target.text.slice(s.start, s.end)),
+          voiceId: voiceFor,
+          speed: serverSpeed(speed),
+          silent: false,
+        },
+        sentenceIndexAt(list, offset),
+      ),
+    );
+  };
+
+  /** Offset of the sentence being spoken, else the bookmark. */
+  const currentOffset = (target: LibraryEntry) =>
+    spoken !== null && sentences[spoken] ? sentences[spoken].start : target.position;
 
   const open = (target: LibraryEntry) => {
     if (target.id !== currentId) {
@@ -68,79 +130,91 @@ export function usePlayer(
 
   const toggle = (target: LibraryEntry | null = entry) => {
     if (!target) return;
-    if (target.id === currentId && reader.status === 'speaking') reader.pause();
-    else if (target.id === currentId && reader.status === 'paused') reader.resume();
+    if (target.id === currentId && status === 'speaking') reader.pause();
+    else if (target.id === currentId && status === 'paused') reader.resume();
     else {
       open(target);
-      speakFrom(target, resumeOffset(target));
+      readFrom(target, resumeOffset(target));
     }
   };
 
   const playFrom = (offset: number) => {
-    if (entry) speakFrom(entry, offset);
+    if (entry) readFrom(entry, offset);
   };
 
   /** Jumps to `offset`; keeps playing if it was, otherwise just moves the bookmark. */
   const seek = (offset: number) => {
     if (!entry) return;
-    if (reader.status === 'idle') dispatch({ type: 'position', id: entry.id, position: offset });
-    else speakFrom(entry, offset);
+    if (status === 'idle') dispatch({ type: 'position', id: entry.id, position: offset });
+    else readFrom(entry, offset);
   };
 
   const skip = (direction: -1 | 1) => {
     if (!entry || !sentences.length) return;
-    const at = reader.word?.start ?? entry.position;
-    const index = sentenceIndexAt(sentences, at);
+    const index = sentenceIndexAt(sentences, status === 'idle' ? entry.position : currentOffset(entry));
     const target = sentences[Math.max(0, Math.min(sentences.length - 1, index + direction))];
     seek(target.start);
   };
 
-  const restartIfPlaying = (next: { voice: Voice | undefined; speed: number }) => {
-    if (entry && reader.status !== 'idle') speakFrom(entry, reader.word?.start ?? entry.position, next);
-  };
-
   const setSpeed = (speed: number) => {
     dispatch({ type: 'settings', patch: { speed } });
-    restartIfPlaying({ voice, speed });
+    if (entry && status !== 'idle') readFrom(entry, currentOffset(entry), speed);
   };
 
   /** `resume` starts reading from the bookmark in the new voice even if playback was stopped. */
   const setVoice = (next: Voice, resume = false) => {
-    dispatch({
-      type: 'settings',
-      patch: { voiceByLanguage: { ...settings.voiceByLanguage, [language]: next.id } },
-    });
-    if (resume && entry && reader.status === 'idle') {
-      speakFrom(entry, resumeOffset(entry), { voice: next, speed: settings.speed });
-    } else {
-      restartIfPlaying({ voice: next, speed: settings.speed });
-    }
+    dispatch({ type: 'settings', patch: { voiceId: next.id } });
+    if (!entry) return;
+    if (status !== 'idle') readFrom(entry, currentOffset(entry), settings.speed, next.id);
+    else if (resume) readFrom(entry, resumeOffset(entry), settings.speed, next.id);
   };
+
+  const preview = (next: Voice) => {
+    if (previewId === next.id) {
+      setPreviewId(null);
+      reader.stop();
+      return;
+    }
+    setError(null);
+    setPreviewId(next.id);
+    run(
+      reader.play(
+        { title: 'Voice preview', texts: [PREVIEW_TEXT], voiceId: next.id, speed: serverSpeed(settings.speed), silent: true },
+        0,
+      ),
+    );
+  };
+
+  const stop = useCallback(() => {
+    setPreviewId(null);
+    reader.stop();
+  }, [reader]);
 
   const closeIfCurrent = (id: string) => {
     if (id !== currentId) return;
-    reader.stop();
+    stop();
     setCurrentId(null);
   };
 
   /**
-   * The range to highlight: the word being spoken, or while stopped an empty
-   * range at the bookmark so its sentence shows where reading will resume.
+   * The range to highlight: the sentence being spoken, or while stopped the
+   * sentence at the bookmark so the reader shows where reading will resume.
    */
   const highlight: TextRange | null =
-    reader.word ??
-    (entry && entry.position > 0 && entry.position < entry.text.length
-      ? { start: entry.position, end: entry.position }
-      : null);
+    spoken !== null && sentences[spoken]
+      ? sentences[spoken]
+      : entry && entry.position > 0 && entry.position < entry.text.length
+        ? { start: entry.position, end: entry.position }
+        : null;
 
   return {
     entry,
-    status: reader.status,
-    error: reader.error,
+    status,
+    error,
     highlight,
     sentences,
     voice,
-    language,
+    previewingId: previewId,
     sleepAt,
     setSleepAt,
     open,
@@ -150,7 +224,8 @@ export function usePlayer(
     skip,
     setSpeed,
     setVoice,
-    stop: reader.stop,
+    preview,
+    stop,
     closeIfCurrent,
   };
 }

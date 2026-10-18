@@ -19,23 +19,17 @@ export interface LibraryEntry extends ReaderDocument {
 }
 
 export interface ReaderSettings {
-  /** Chosen voice id per base language ("en", "vi"), so each document reads in a voice that speaks it. */
-  voiceByLanguage: Record<string, string>;
+  /** Vbee voice code used for every document. */
+  voiceId: string;
   speed: number;
   fontSize: number;
 }
 
-export type VoiceQuality = 'default' | 'enhanced' | 'premium';
-
+/** A Vbee voice from GET /v1/voices. */
 export interface Voice {
   id: string;
   name: string;
-  /** BCP-47 tag, e.g. "en-GB". */
-  language: string;
-  /** The language named in itself, e.g. "Tiếng Việt". */
-  languageName: string;
-  regionName: string;
-  quality: VoiceQuality;
+  gender: string;
 }
 
 /** UTF-16 offsets into the text being spoken, same units as JS string indices. */
