@@ -22,9 +22,21 @@ interface Props {
 }
 
 const BADGE = {
-  premium: { label: 'Premium', style: { backgroundColor: colors.inverse }, text: { color: colors.onInverse } },
-  enhanced: { label: 'Enhanced', style: { backgroundColor: colors.accentSoft }, text: { color: colors.accent } },
-  default: { label: 'Default', style: { backgroundColor: colors.chip }, text: { color: colors.muted } },
+  premium: {
+    label: 'PREMIUM',
+    style: { backgroundColor: colors.inverse },
+    text: { color: colors.onInverse },
+  },
+  enhanced: {
+    label: 'ENHANCED',
+    style: { backgroundColor: colors.accentSoft },
+    text: { color: colors.accent },
+  },
+  default: {
+    label: 'DEFAULT',
+    style: { backgroundColor: colors.chip },
+    text: { color: colors.muted },
+  },
 } as const;
 
 export function VoicePicker(props: Props) {
@@ -33,7 +45,10 @@ export function VoicePicker(props: Props) {
   const preview = usePreview(props.engine);
 
   const own = useMemo(() => voicesFor(voices, language), [voices, language]);
-  const others = useMemo(() => groupByLanguage(voices).filter(g => g.language !== language), [voices, language]);
+  const others = useMemo(
+    () => groupByLanguage(voices).filter(g => g.language !== language),
+    [voices, language],
+  );
   const languageName = own[0]?.languageName ?? language;
 
   const close = () => {
@@ -57,22 +72,39 @@ export function VoicePicker(props: Props) {
   );
 
   return (
-    <Modal visible={props.visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={close}>
+    <Modal
+      visible={props.visible}
+      animationType="slide"
+      presentationStyle="pageSheet"
+      onRequestClose={close}>
       <SafeAreaView style={styles.sheet} edges={['bottom']}>
+        {/* iOS sheet grab indicator */}
+        <View style={styles.handleContainer}>
+          <View style={styles.handle} />
+        </View>
+
         <View style={styles.head}>
-          <Text style={styles.h2}>Voice</Text>
-          <Pressable testID="voice-picker-close" style={styles.done} onPress={close}>
+          <View>
+            <Text style={styles.h2}>Voice</Text>
+            <Text style={styles.detected}>Document language: {languageName}</Text>
+          </View>
+          <Pressable
+            testID="voice-picker-close"
+            style={styles.done}
+            onPress={close}>
             <Text style={styles.doneText}>Done</Text>
           </Pressable>
         </View>
-        <Text style={styles.detected}>This document looks like {languageName}</Text>
 
         <ScrollView contentContainerStyle={styles.body}>
           <Text style={styles.label}>{languageName}</Text>
           {own.length ? (
             <View style={styles.group}>{own.map(row)}</View>
           ) : (
-            <Text style={styles.none}>No {languageName} voices on this device yet. Add one in Settings, see below.</Text>
+            <Text style={styles.none}>
+              No {languageName} voices found on this device. You can download voices in iOS
+              Settings below.
+            </Text>
           )}
 
           {others.length ? <Text style={styles.label}>Other languages</Text> : null}
@@ -91,7 +123,7 @@ export function VoicePicker(props: Props) {
                         {group.voices.length} {group.voices.length === 1 ? 'voice' : 'voices'}
                       </Text>
                       <View style={open ? styles.chevronOpen : undefined}>
-                        <ChevronIcon size={8} direction="right" color={colors.muted} />
+                        <ChevronIcon size={9} direction="right" color={colors.muted} />
                       </View>
                     </View>
                   </Pressable>
@@ -102,10 +134,11 @@ export function VoicePicker(props: Props) {
           </View>
 
           <View style={styles.more}>
-            <Text style={styles.moreTitle}>Get better voices</Text>
+            <Text style={styles.moreTitle}>Upgrade voice quality</Text>
             <Text style={styles.moreText}>
-              Enhanced and Premium voices download free in Settings › Accessibility › Spoken Content › Voices. They
-              appear here once installed.
+              Download high-fidelity Enhanced and Premium voices for free in{' '}
+              <Text style={styles.boldText}>Settings › Accessibility › Spoken Content › Voices</Text>.
+              They will appear here automatically.
             </Text>
           </View>
         </ScrollView>
@@ -127,17 +160,29 @@ function VoiceRow(props: {
     <Pressable
       testID={`voice-${voice.id}`}
       accessibilityState={{ selected: props.selected }}
-      style={({ pressed }) => [styles.row, pressed && styles.pressed]}
+      style={({ pressed }) => [
+        styles.row,
+        props.selected && styles.rowSelected,
+        pressed && styles.pressed,
+      ]}
       onPress={props.onSelect}>
       <Pressable
         testID={`preview-${voice.id}`}
-        accessibilityLabel={props.previewing ? `Stop preview of ${voice.name}` : `Preview ${voice.name}`}
+        accessibilityLabel={
+          props.previewing ? `Stop preview of ${voice.name}` : `Preview ${voice.name}`
+        }
         style={[styles.preview, props.previewing && styles.previewOn]}
         onPress={props.onPreview}>
-        {props.previewing ? <StopIcon size={12} color={colors.accent} /> : <PlayIcon size={13} color={colors.accent} />}
+        {props.previewing ? (
+          <StopIcon size={12} color={colors.accent} />
+        ) : (
+          <PlayIcon size={13} color={colors.accent} />
+        )}
       </Pressable>
       <View style={styles.meta}>
-        <Text style={styles.name}>{voice.name}</Text>
+        <Text style={[styles.name, props.selected && styles.nameSelected]}>
+          {voice.name}
+        </Text>
         <View style={styles.sub}>
           <View style={[styles.badge, badge.style]}>
             <Text style={[styles.badgeText, badge.text]}>{badge.label}</Text>
@@ -145,7 +190,9 @@ function VoiceRow(props: {
           <Text style={styles.muted}>{voice.regionName}</Text>
         </View>
       </View>
-      <View style={styles.check}>{props.selected ? <CheckIcon color={colors.accent} /> : null}</View>
+      <View style={styles.check}>
+        {props.selected ? <CheckIcon size={16} color={colors.accent} /> : null}
+      </View>
     </Pressable>
   );
 }
@@ -169,7 +216,11 @@ function usePreview(engine: SpeechEngine) {
     const done = () => id === run.current && setVoiceId(null);
     setVoiceId(voice.id);
     try {
-      session.current = await engine.speak(sample, { voiceId: voice.id, speed }, { onFinish: done, onCancel: done });
+      session.current = await engine.speak(
+        sample,
+        { voiceId: voice.id, speed },
+        { onFinish: done, onCancel: done },
+      );
     } catch {
       done();
     }
@@ -182,58 +233,108 @@ function usePreview(engine: SpeechEngine) {
 
 const styles = StyleSheet.create({
   sheet: { flex: 1, backgroundColor: colors.background },
-  head: { flexDirection: 'row', alignItems: 'center', paddingLeft: 20, paddingRight: 8, paddingTop: 12 },
-  h2: { flex: 1, fontSize: 20, fontWeight: '700', color: colors.text },
-  done: { minHeight: 44, minWidth: 44, paddingHorizontal: 12, justifyContent: 'center' },
-  doneText: { fontSize: 17, fontWeight: '600', color: colors.accent },
-  detected: { marginHorizontal: 20, fontSize: 13, color: colors.muted },
-  body: { paddingHorizontal: 12, paddingTop: 8, paddingBottom: 32 },
+  handleContainer: {
+    alignItems: 'center',
+    paddingTop: 8,
+    paddingBottom: 4,
+  },
+  handle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: colors.border,
+  },
+  head: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingTop: 8,
+    paddingBottom: 12,
+  },
+  h2: { fontSize: 24, fontWeight: '800', color: colors.text, letterSpacing: -0.4 },
+  done: {
+    minHeight: 40,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    backgroundColor: colors.accentSoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  doneText: { fontSize: 15, fontWeight: '700', color: colors.accent },
+  detected: { fontSize: 13, color: colors.muted, marginTop: 2 },
+  body: { paddingHorizontal: 16, paddingTop: 4, paddingBottom: 36 },
   label: {
-    paddingTop: 16,
-    paddingBottom: 6,
-    paddingHorizontal: 8,
-    fontSize: 13,
-    fontWeight: '600',
+    paddingTop: 18,
+    paddingBottom: 8,
+    paddingHorizontal: 4,
+    fontSize: 12,
+    fontWeight: '700',
     color: colors.muted,
     textTransform: 'uppercase',
     letterSpacing: 0.8,
   },
   none: { paddingHorizontal: 8, fontSize: 14, lineHeight: 20, color: colors.muted },
-  group: { backgroundColor: colors.surface, borderRadius: 16, overflow: 'hidden' },
+  group: {
+    backgroundColor: colors.surface,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: colors.borderLight,
+    overflow: 'hidden',
+  },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    minHeight: 60,
-    paddingLeft: 8,
-    paddingRight: 14,
+    minHeight: 64,
+    paddingLeft: 10,
+    paddingRight: 16,
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.track,
+    borderTopColor: colors.borderLight,
+  },
+  rowSelected: {
+    backgroundColor: '#FAFCFF',
   },
   pressed: { backgroundColor: colors.chip },
-  preview: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
+  preview: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: colors.chip,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   previewOn: { backgroundColor: colors.accentSoft },
   meta: { flex: 1, minWidth: 0 },
-  name: { fontSize: 16, fontWeight: '600', color: colors.text },
+  name: { fontSize: 16, fontWeight: '600', color: colors.text, letterSpacing: -0.2 },
+  nameSelected: { color: colors.accent, fontWeight: '700' },
   sub: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 3 },
-  badge: { paddingHorizontal: 7, paddingVertical: 2, borderRadius: 6 },
-  badgeText: { fontSize: 11, fontWeight: '700', letterSpacing: 0.3 },
+  badge: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 5 },
+  badgeText: { fontSize: 10, fontWeight: '800', letterSpacing: 0.4 },
   muted: { fontSize: 13, color: colors.muted },
-  check: { width: 22, alignItems: 'center' },
+  check: { width: 24, alignItems: 'center', justifyContent: 'center' },
   other: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     minHeight: 52,
-    paddingHorizontal: 14,
+    paddingHorizontal: 16,
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.track,
+    borderTopColor: colors.borderLight,
   },
-  otherName: { fontSize: 15, color: colors.text },
+  otherName: { fontSize: 15, fontWeight: '500', color: colors.text },
   otherCount: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   chevronOpen: { transform: [{ rotate: '90deg' }] },
   nested: { backgroundColor: colors.background },
-  more: { marginTop: 16, marginHorizontal: 0, padding: 14, borderRadius: 16, borderWidth: 1.5, borderStyle: 'dashed', borderColor: colors.border },
-  moreTitle: { fontSize: 15, fontWeight: '600', color: colors.text },
-  moreText: { fontSize: 14, lineHeight: 20, color: colors.muted, marginTop: 4 },
+  more: {
+    marginTop: 20,
+    padding: 16,
+    borderRadius: 18,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.borderLight,
+  },
+  moreTitle: { fontSize: 15, fontWeight: '700', color: colors.text },
+  moreText: { fontSize: 13, lineHeight: 19, color: colors.muted, marginTop: 4 },
+  boldText: { fontWeight: '600', color: colors.text },
 });
