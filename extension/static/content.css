@@ -54,3 +54,7 @@
 .rdub-overlay-title { font-size: 14px; font-weight: 700; }
 .rdub-overlay-sub { color: var(--muted-foreground); font-size: 12px; }
 .rdub-overlay-sub:empty { display: none; }
+
+/* While the video waits for the dub: progress and a way to watch without waiting. */
+.rdub-overlay .rd-bar { width: 220px; margin: 8px auto 2px; }
+.rdub-overlay .rdub-watch-now { pointer-events: auto; min-height: 28px; font-size: 13px; }

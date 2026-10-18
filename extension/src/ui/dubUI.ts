@@ -10,9 +10,8 @@ import { el } from './dom';
 import { LoginForm } from './loginForm';
 
 const OVERLAY_TEXT: Record<Exclude<Overlay, 'none'>, [string, string]> = {
-  preparing: ['Đang chuẩn bị lồng tiếng…', 'Đang dịch phụ đề sang tiếng Việt'],
-  cold: ['Đang khởi động giọng đọc…', 'Lần đầu mất khoảng 30 giây'],
-  'not-ready': ['Câu tiếp theo chưa sẵn sàng', 'Đang tạo giọng đọc, sẽ phát ngay khi xong'],
+  waiting: ['Đang tạo lồng tiếng…', 'Video sẽ tự phát khi đủ tiếng'],
+  'not-ready': ['Đang xem không lồng tiếng', 'Sẽ lồng tiếng lại khi kịp'],
   quota: ['Đã hết phút lồng tiếng hôm nay', 'Gói Free giới hạn số phút mỗi ngày'],
   error: ['Không lồng tiếng được', ''],
 };
@@ -143,12 +142,19 @@ export class DubUI {
       return this.render();
     }
     if (!video) return;
+    // The video waits for the dub from the start, so the first words are not said before the dub has them.
+    const playing = !video.paused;
+    if (playing) video.pause();
+    const giveBack = () => {
+      if (playing && video.paused) void video.play();
+    };
     this.message = 'Đang đọc phụ đề…';
     this.render();
     const result = await requestCaptions();
-    if (!this.enabled) return;
+    if (!this.enabled) return giveBack();
     const segments = result.ok ? toSegments(result.events) : [];
     if (!result.ok || segments.length === 0) {
+      giveBack();
       this.enabled = false;
       this.message =
         result.ok || result.reason === 'no-captions' ? 'Video này chưa có phụ đề nên chưa lồng tiếng được.' : 'Không đọc được phụ đề của video này.';
@@ -156,6 +162,7 @@ export class DubUI {
     }
     // Songs are left alone without a fuss: dubbing stays off and the panel says why in one line.
     if (!this.musicOverride && isMusicVideo({ category: result.category, durationSec: result.durationSec, events: result.events, segments })) {
+      giveBack();
       this.enabled = false;
       this.isMusic = true;
       this.message = '';
@@ -163,7 +170,7 @@ export class DubUI {
     }
     this.message = '';
     this.captionsNote = result.auto ? 'Phụ đề tự động' : result.language === 'en' || result.language.startsWith('en-') ? 'Phụ đề tiếng Anh' : `Phụ đề ${result.language}`;
-    this.dub = new Dub(video, { id: result.videoId, title: result.title, description: result.description }, segments, this.settings, () => this.renderStatus());
+    this.dub = new Dub(video, { id: result.videoId, title: result.title, description: result.description }, segments, this.settings, () => this.renderStatus(), playing);
     this.render();
     await this.dub.start();
   }
@@ -181,11 +188,7 @@ export class DubUI {
     const overlay = this.enabled ? (this.dub?.overlay ?? 'none') : 'none';
     this.overlay.classList.toggle('rdub-show', overlay !== 'none');
     if (overlay !== 'none') {
-      const [title, sub] = OVERLAY_TEXT[overlay];
-      this.overlay.replaceChildren(
-        el('div', 'rdub-overlay-title', title),
-        el('div', 'rdub-overlay-sub', overlay === 'error' ? this.dub!.error : sub),
-      );
+      this.renderOverlay(overlay);
     }
     if (!this.dub) return this.progress.replaceChildren();
     const { done, total } = this.dub.progress;
@@ -256,6 +259,30 @@ export class DubUI {
     );
     out.push(volumes, this.progress);
     return out;
+  }
+
+  private renderOverlay(overlay: Exclude<Overlay, 'none'>) {
+    const dub = this.dub!;
+    let [title, sub] = OVERLAY_TEXT[overlay];
+    if (overlay === 'error') sub = dub.error;
+    if (overlay !== 'waiting') {
+      this.overlay.replaceChildren(el('div', 'rdub-overlay-title', title), el('div', 'rdub-overlay-sub', sub));
+      return;
+    }
+    if (dub.coldStart) sub = 'Đang khởi động giọng đọc, lần đầu mất khoảng 30 giây';
+    const pct = Math.round(dub.waitProgress * 100);
+    const bar = el('div', 'rd-bar');
+    const fill = el('div');
+    fill.style.width = `${pct}%`;
+    bar.append(fill);
+    const now = el('button', 'rd-link rdub-watch-now', 'Xem luôn');
+    now.type = 'button';
+    now.addEventListener('click', e => {
+      e.stopPropagation();
+      dub.watchNow();
+      this.renderStatus();
+    });
+    this.overlay.replaceChildren(el('div', 'rdub-overlay-title', `${title} ${pct}%`), el('div', 'rdub-overlay-sub', sub), bar, now);
   }
 
   private setVolumes(patch: Partial<Settings>) {
