@@ -10,6 +10,7 @@
 //	MAIL_FROM          sender of login emails (default "Readu <onboarding@resend.dev>")
 //	CACHE_DIR          where synthesized chunks are kept (default ./cache)
 //	DEBUG_TOKEN        enables /v1/debug/cache when set; requests need it as a bearer token
+//	CORS_ORIGINS       comma-separated browser origins allowed to call the API (optional)
 //	PORT               listen port (default 8080)
 package main
 
@@ -105,7 +106,7 @@ func main() {
 
 	addr := ":" + envOr("PORT", "8080")
 	log.Printf("listening on %s, cache %s", addr, cacheDir)
-	log.Fatal(http.ListenAndServe(addr, mux))
+	log.Fatal(http.ListenAndServe(addr, withCORS(os.Getenv("CORS_ORIGINS"), mux)))
 }
 
 func (s *server) handleSpeech(w http.ResponseWriter, r *http.Request) {
