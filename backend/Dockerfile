@@ -4,6 +4,7 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY *.go openapi.json ./
 COPY migrations ./migrations
+COPY dub ./dub
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/vtts-backend .
 
 FROM alpine:3.21

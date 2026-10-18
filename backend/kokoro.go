@@ -10,6 +10,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"vtts-backend/dub"
 )
 
 type kokoroClient struct {
@@ -26,7 +28,7 @@ type kokoroRequest struct {
 }
 
 func newKokoroClient() *kokoroClient {
-	return &kokoroClient{url: strings.TrimRight(os.Getenv("KOKORO_WORKER_URL"), "/"), token: os.Getenv("KOKORO_WORKER_TOKEN"), client: &http.Client{Timeout: 95 * time.Second}, sem: make(chan struct{}, 1), retryEvery: 2 * time.Second}
+	return &kokoroClient{url: strings.TrimRight(os.Getenv("KOKORO_WORKER_URL"), "/"), token: os.Getenv("KOKORO_WORKER_TOKEN"), client: &http.Client{Timeout: 95 * time.Second}, sem: make(chan struct{}, dub.SpeakConcurrency), retryEvery: 2 * time.Second}
 }
 func (k *kokoroClient) synthesize(ctx context.Context, text, voice string, speed float64) ([]byte, error) {
 	if k == nil || k.url == "" {
@@ -56,6 +58,28 @@ func (k *kokoroClient) synthesize(ctx context.Context, text, voice string, speed
 		select {
 		case <-ctx.Done():
 			return nil, fmt.Errorf("%w (last error: %v)", ctx.Err(), err)
+		case <-time.After(k.retryEvery):
+		}
+	}
+}
+
+// wake asks the worker's health check until it answers, which starts a sleeping worker without using its CPU.
+func (k *kokoroClient) wake(ctx context.Context) error {
+	for {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, k.url+"/healthz", nil)
+		if err != nil {
+			return err
+		}
+		resp, err := k.client.Do(req)
+		if err == nil {
+			resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				return nil
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
 		case <-time.After(k.retryEvery):
 		}
 	}

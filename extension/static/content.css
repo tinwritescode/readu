@@ -1,0 +1,56 @@
+/* Readu Dub on YouTube. Looks come from ui.css; this file only places things in the player. Every class
+   starts with rdub- or rd- so nothing clashes with the player's own styles. */
+
+/* The control-bar button takes the player's own .ytp-button box, so its height and vertical centre match the
+   native controls; the pill inside is centred in that box. */
+.ytp-button.rdub-button {
+  display: inline-flex !important; align-items: center; justify-content: center;
+  width: auto !important; height: 100%; padding: 0 6px !important; vertical-align: top;
+  opacity: 1; color: #fff; font-size: 12px;
+}
+.rdub-pill {
+  display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 11px;
+  border-radius: 999px; background: oklch(1 0 0 / 14%);
+  font-weight: 700; font-size: 12px; line-height: 1; letter-spacing: .01em; white-space: nowrap;
+  transition: background .15s, color .15s;
+}
+.ytp-button.rdub-button:hover .rdub-pill { background: oklch(1 0 0 / 22%); }
+.rdub-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; opacity: .55; }
+.ytp-button.rdub-button.rdub-on .rdub-pill { background: var(--primary); color: var(--primary-foreground); }
+.ytp-button.rdub-button.rdub-on .rdub-dot { opacity: 1; }
+.ytp-button.rdub-button.rdub-music .rdub-pill { opacity: .55; }
+
+/* Side panel: charcoal sheet with 28px corners, a hairline edge and no shadow. */
+.rdub-panel {
+  display: none; position: absolute; z-index: 70; top: 12px; right: 12px; bottom: 64px;
+  width: 320px; max-width: calc(100% - 24px); overflow-y: auto; overscroll-behavior: contain;
+  padding: 12px 16px 16px; border: 1px solid var(--border); border-radius: 28px; background: var(--background);
+  scrollbar-width: thin;
+}
+.rdub-panel.rdub-open { display: flex; flex-direction: column; gap: 12px; }
+.rdub-head { display: flex; align-items: center; gap: 8px; margin-right: -8px; }
+.rdub-title { flex: 1; font-size: 17px; font-weight: 700; }
+.rdub-sub { margin-top: -8px; }
+.rdub-label { font-size: 14px; color: var(--muted-foreground); }
+.rdub-note { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 6px 6px 12px; }
+.rdub-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.rdub-count { font-weight: 700; }
+.rdub-slider { display: flex; flex-direction: column; gap: 6px; }
+.rdub-slider input { width: 100%; margin: 0; accent-color: var(--primary); }
+.rdub-progress:empty { display: none; }
+
+/* The sign-in form inside the panel. */
+.rdub-login-head { display: flex; flex-direction: column; gap: 4px; }
+.rdub-login-title { font-size: 17px; font-weight: 700; }
+
+/* Status over the video: a small glass pill that never blocks the player. */
+.rdub-overlay {
+  display: none; position: absolute; z-index: 69; top: 16px; left: 50%; transform: translateX(-50%);
+  max-width: calc(100% - 32px); padding: 10px 18px; border-radius: 999px;
+  background: var(--glass); backdrop-filter: blur(18px) saturate(1.4); border: 1px solid var(--border);
+  text-align: center; pointer-events: none;
+}
+.rdub-overlay.rdub-show { display: block; }
+.rdub-overlay-title { font-size: 14px; font-weight: 700; }
+.rdub-overlay-sub { color: var(--muted-foreground); font-size: 12px; }
+.rdub-overlay-sub:empty { display: none; }

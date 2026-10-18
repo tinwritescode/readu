@@ -1,0 +1,20 @@
+body { margin: 0; width: 380px; min-height: 480px; background: var(--background); }
+#app { min-height: 480px; padding: 20px 16px 16px; display: flex; flex-direction: column; gap: 16px; }
+#app > .rl { flex: 1; padding: 4px 4px 0; }
+.brand { display: flex; align-items: center; gap: 10px; }
+.logo {
+  display: grid; place-items: center; width: 36px; height: 36px; border-radius: 12px;
+  background: var(--primary); color: var(--primary-foreground); font-weight: 800; font-size: 17px;
+}
+.brand-name { font-weight: 700; font-size: 17px; }
+.heading { display: flex; flex-direction: column; gap: 4px; }
+.row { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.plan {
+  font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 999px;
+  background: var(--accent); color: var(--accent-foreground); text-transform: capitalize;
+}
+.email { color: var(--muted-foreground); overflow-wrap: anywhere; }
+.stat { font-size: 22px; font-weight: 700; }
+.setting { min-height: 44px; }
+#app > .rd-link { margin-top: auto; align-self: center; }
+.hint { margin: 0; }
