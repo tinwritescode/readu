@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "Readu Dub",
+  "version": "0.1.0",
+  "description": "Lồng tiếng Việt cho video YouTube tiếng Anh bằng giọng đọc Readu.",
+  "permissions": ["storage"],
+  "host_permissions": ["https://api.readu.tyvn.online/*"],
+  "background": { "service_worker": "background.js" },
+  "action": { "default_popup": "popup.html", "default_title": "Readu Dub" },
+  "content_scripts": [
+    {
+      "matches": ["https://www.youtube.com/*"],
+      "js": ["main-world.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": ["https://www.youtube.com/*"],
+      "js": ["content.js"],
+      "css": ["content.css"],
+      "run_at": "document_idle"
+    }
+  ]
+}
