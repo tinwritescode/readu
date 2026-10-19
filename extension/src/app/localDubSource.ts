@@ -8,8 +8,10 @@ import type { Segment } from '../domain/types';
 import { modelOf } from '../domain/voices';
 import type { DubProgress, DubSource } from './dubSource';
 
-/** Audio is made this far ahead of the viewer (video time), like the server's window. */
-const AHEAD_MS = 3 * 60_000;
+/** Audio is made this far ahead of the viewer (video time). Shorter than the server's 3 minutes: the work is the
+ *  same in the end, but it comes in short bursts as the video plays instead of minutes at full load, which heats
+ *  the computer, and less is wasted when the viewer skips ahead. It stays above the playback gate's 30 s. */
+const AHEAD_MS = 60_000;
 /** A sentence that fails this many times stays silent. */
 const MAX_FAILURES = 3;
 /** Matches the server's reading speed: Vietnamese usually runs longer than the English it replaces. */

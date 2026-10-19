@@ -102,15 +102,18 @@ export class VieneuEngine {
     for (const backend of backends) {
       if (backend === 'webgpu' && !('gpu' in navigator)) continue;
       try {
-        const opts = (data: Uint8Array, path: string): ort.InferenceSession.SessionOptions => ({
+        // A frame is 17 short runs with JavaScript in between. Threads that spin while they wait keep every core
+        // busy through those gaps and heat the computer for no speed, so they sleep instead, as upstream sets it.
+        const base: ort.InferenceSession.SessionOptions = {
           executionProviders: [backend],
           graphOptimizationLevel: 'all',
-          externalData: [{ path, data }],
-        });
+          extra: { session: { intra_op: { allow_spinning: '0' }, inter_op: { allow_spinning: '0' } } },
+        };
+        const opts = (data: Uint8Array, path: string): ort.InferenceSession.SessionOptions => ({ ...base, externalData: [{ path, data }] });
         // One at a time: onnxruntime-web copies each graph's weights into its own memory as it builds it.
         const pre = await ort.InferenceSession.create(files.prefill, opts(files.backboneData, 'vieneu_backbone_shared.data'));
         const dec = await ort.InferenceSession.create(files.decodeStep, opts(files.backboneData, 'vieneu_backbone_shared.data'));
-        const ac = await ort.InferenceSession.create(files.acoustic, { executionProviders: [backend], graphOptimizationLevel: 'all' });
+        const ac = await ort.InferenceSession.create(files.acoustic, base);
         const codec = await ort.InferenceSession.create(files.codec, opts(files.codecData, 'moss_audio_tokenizer_decode_shared.data'));
         return new VieneuEngine(files.config, files.heads, files.tokenizer, pre, dec, ac, codec, g2p, backend);
       } catch (e) {

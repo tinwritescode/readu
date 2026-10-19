@@ -3,10 +3,11 @@
 import * as ort from 'onnxruntime-web/webgpu';
 import initSeaG2p, { SeaG2p } from '../../../vendor/sea-g2p/sea_g2p_rs.js';
 
-/** onnxruntime-web reads this when it first starts. VieNeu runs many small graphs, which more threads slow down. */
+/** onnxruntime-web reads this when it first starts. VieNeu runs many small graphs: past 4 threads they add heat,
+ *  not speed (6 were only 5% faster on an M4 Pro). */
 export function setUpOrt() {
   ort.env.wasm.wasmPaths = chrome.runtime.getURL('ort/');
-  ort.env.wasm.numThreads = self.crossOriginIsolated ? Math.min(navigator.hardwareConcurrency, 6) : 1;
+  ort.env.wasm.numThreads = self.crossOriginIsolated ? Math.min(navigator.hardwareConcurrency, 4) : 1;
 }
 
 let g2p: Promise<SeaG2p> | null = null;
