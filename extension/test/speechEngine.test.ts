@@ -18,3 +18,11 @@ describe('chooseEngine', () => {
     expect(chooseEngine('auto', missing, false)).toBe('server');
   });
 });
+
+describe('chooseEngine with a VieNeu voice', () => {
+  it('reads on this computer whatever the setting, since the server has only Kokoro', () => {
+    const missing = { installed: false, downloadBytes: 1 };
+    expect(chooseEngine('server', missing, true, 'vieneu')).toBe('device');
+    expect(chooseEngine('auto', missing, true, 'vieneu')).toBe('device');
+  });
+});

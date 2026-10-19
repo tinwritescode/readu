@@ -7,10 +7,10 @@ import { ServerDubSource } from '../app/dubSource';
 import { LocalDubSource } from '../app/localDubSource';
 import { englishToVietnamese } from '../adapters/translate/chromeTranslator';
 import { chooseEngine, type Engine } from '../domain/speechEngine';
-import { KOKORO_VOICES } from '../domain/voices';
+import { KOKORO_VOICES, modelOf, VIENEU_VOICES } from '../domain/voices';
 import { toSegments } from '../domain/captions';
 import { isMusicVideo } from '../domain/music';
-import type { InstallProgress, LocalEngine, ReadOn, Settings, Voice } from '../domain/types';
+import type { InstallProgress, LocalEngine, LocalModel, ReadOn, Settings, Voice } from '../domain/types';
 import { el } from './dom';
 import { LoginForm } from './loginForm';
 
@@ -45,7 +45,7 @@ export class DubUI {
   private isMusic = false;
   /** The viewer chose to dub this music video anyway. */
   private musicOverride = false;
-  /** Reading on this computer: downloaded or not, and how fast; null until asked. */
+  /** Reading on this computer with the chosen voice's model: downloaded or not, and how fast; null until asked. */
   private local: LocalEngine | null = null;
   private install: InstallProgress | null = null;
   private installing = false;
@@ -53,7 +53,7 @@ export class DubUI {
   async init() {
     this.settings = await loadSettings();
     this.signedIn = !!(await chrome.storage.local.get('token')).token;
-    this.install = ((await chrome.storage.local.get('kokoroInstall')) as { kokoroInstall?: InstallProgress }).kokoroInstall ?? null;
+    this.install = ((await chrome.storage.local.get('localInstall')) as { localInstall?: InstallProgress }).localInstall ?? null;
     void this.loadLocal();
     this.button.type = 'button';
     this.button.title = 'Lồng tiếng Việt';
@@ -71,8 +71,8 @@ export class DubUI {
     this.panel.addEventListener('keydown', e => e.stopPropagation());
 
     chrome.storage.onChanged.addListener(changes => {
-      if (changes.kokoroInstall) {
-        this.install = (changes.kokoroInstall.newValue as InstallProgress | undefined) ?? null;
+      if (changes.localInstall) {
+        this.install = (changes.localInstall.newValue as InstallProgress | undefined) ?? null;
         this.render();
       }
       if (changes.token) {
@@ -84,6 +84,11 @@ export class DubUI {
       if (changes.settings) {
         const prev = this.settings;
         this.settings = { ...this.settings, ...(changes.settings.newValue as Settings) };
+        // Kokoro and VieNeu are downloaded and measured separately.
+        if (modelOf(prev.voice) !== this.model()) {
+          this.local = null;
+          void this.loadLocal();
+        }
         if (this.enabled && (prev.voice !== this.settings.voice || prev.readOn !== this.settings.readOn)) this.restart();
         // On or off chosen in the popup applies to this video too.
         if (prev.autoDub !== this.settings.autoDub && this.settings.autoDub !== this.enabled && this.videoId) {
@@ -129,21 +134,26 @@ export class DubUI {
   }
 
   private async loadLocal() {
-    const res = await send({ type: 'localEngine' });
+    const res = await send({ type: 'localEngine', model: this.model() });
     if (res.ok) this.local = res.data;
     this.render();
   }
 
+  /** The model that reads the chosen voice on this computer. */
+  private model(): LocalModel {
+    return modelOf(this.settings.voice);
+  }
+
   /** Where this dub would be made with the current setting. */
   private engine(): Engine {
-    return chooseEngine(this.settings.readOn, this.local ?? { installed: false, downloadBytes: 0 }, navigator.onLine);
+    return chooseEngine(this.settings.readOn, this.local ?? { installed: false, downloadBytes: 0 }, navigator.onLine, this.model());
   }
 
   /** Downloads the voice, then measures how fast this computer reads with it. */
   private async installLocal() {
     this.installing = true;
     this.render();
-    const res = await send({ type: 'localInstall' });
+    const res = await send({ type: 'localInstall', model: this.model() });
     if (res.ok) {
       this.message = 'Đang đo tốc độ máy…';
       this.render();
@@ -291,17 +301,10 @@ export class DubUI {
       out.push(el('div', 'rd-tile rd-muted', this.message));
     }
 
-    out.push(el('div', 'rdub-label', 'Giọng đọc'));
-    const list = el('div', 'rd-chips');
-    if (!this.voices.length) list.append(el('span', 'rd-muted rd-small', 'Đang tải giọng đọc…'));
-    for (const v of this.voices) {
-      const b = el('button', 'rd-chip' + (v.code === this.settings.voice ? ' rd-active' : ''), v.name);
-      b.type = 'button';
-      b.title = v.gender === 'male' ? 'Giọng nam' : 'Giọng nữ';
-      b.addEventListener('click', () => void saveSettings({ voice: v.code }));
-      list.append(b);
-    }
-    out.push(list);
+    out.push(el('div', 'rdub-label', 'Giọng Kokoro'));
+    const kokoro = this.voiceChips(this.voices);
+    if (!this.voices.length) kokoro.append(el('span', 'rd-muted rd-small', 'Đang tải giọng đọc…'));
+    out.push(kokoro, el('div', 'rdub-label', 'Giọng VieNeu · chỉ đọc trên máy này'), this.voiceChips(VIENEU_VOICES));
 
     const volumes = el('section', 'rd-card');
     volumes.append(
@@ -310,6 +313,18 @@ export class DubUI {
     );
     out.push(volumes, this.progress);
     return out;
+  }
+
+  private voiceChips(voices: Voice[]): HTMLElement {
+    const list = el('div', 'rd-chips');
+    for (const v of voices) {
+      const b = el('button', 'rd-chip' + (v.code === this.settings.voice ? ' rd-active' : ''), v.name);
+      b.type = 'button';
+      b.title = v.gender === 'male' ? 'Giọng nam' : 'Giọng nữ';
+      b.addEventListener('click', () => void saveSettings({ voice: v.code }));
+      list.append(b);
+    }
+    return list;
   }
 
   /** Where the dub is made, and downloading the voice to read on this computer. */
@@ -329,7 +344,10 @@ export class DubUI {
     }
     const local = this.local;
     let note: string;
-    if (engine === 'device') {
+    if (this.model() === 'vieneu') {
+      const speed = local?.realtime ? ` · nhanh ${local.realtime.toFixed(1)}×` : '';
+      note = `Giọng VieNeu chỉ đọc trên máy này, không cần mạng${speed}`;
+    } else if (engine === 'device') {
       const speed = local?.realtime ? ` · nhanh ${local.realtime.toFixed(1)}× (${local.backend === 'webgpu' ? 'GPU' : 'CPU'})` : '';
       note = `Đọc trên máy này, không cần mạng${speed}`;
     } else if (this.settings.readOn === 'auto' && local?.installed && local.realtime !== undefined) {
@@ -340,7 +358,7 @@ export class DubUI {
     box.append(el('div', 'rdub-label', 'Đọc ở đâu'), row, el('div', 'rd-muted rd-small', note));
 
     if (local && !local.installed) {
-      const p = this.install;
+      const p = this.install?.model === this.model() ? this.install : null;
       if (this.installing || (p && !p.error && p.done < p.total)) {
         const pct = p ? Math.floor((100 * p.done) / p.total) : 0;
         const bar = el('div', 'rd-bar');
@@ -350,7 +368,8 @@ export class DubUI {
         box.append(el('div', 'rd-muted rd-small', `Đang tải giọng đọc… ${pct}%`), bar);
       } else {
         const mb = Math.round(local.downloadBytes / 1e6);
-        const get = el('button', 'rd-btn rd-btn-outline rd-btn-block', `Tải giọng đọc về máy (${mb} MB)`);
+        const name = this.model() === 'vieneu' ? 'VieNeu' : 'Kokoro';
+        const get = el('button', 'rd-btn rd-btn-outline rd-btn-block', `Tải giọng ${name} về máy (${mb} MB)`);
         get.type = 'button';
         get.addEventListener('click', () => void this.installLocal());
         box.append(get);

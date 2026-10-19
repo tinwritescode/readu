@@ -6,13 +6,13 @@ import { handleRequest } from './app/handleRequest';
 import type { InstallProgress } from './domain/types';
 
 /** Sent by the offscreen document while it downloads the voice. */
-type OffscreenNote = { type: 'kokoroProgress'; progress: InstallProgress } | { target: string };
+type OffscreenNote = { type: 'localProgress'; progress: InstallProgress } | { target: string };
 
 chrome.runtime.onMessage.addListener((req: Request | OffscreenNote, _sender, sendResponse: (r: Reply<Responses[keyof Responses]>) => void) => {
   // Requests for the offscreen document are answered there; its progress notes are kept for every tab to see.
   if ('target' in req) return false;
-  if (req.type === 'kokoroProgress') {
-    void chrome.storage.local.set({ kokoroInstall: req.progress });
+  if (req.type === 'localProgress') {
+    void chrome.storage.local.set({ localInstall: req.progress });
     return false;
   }
   handleRequest(req).then(
